@@ -137,13 +137,19 @@ fn get_trusted_snapshot_hashes(
 }
 
 fn start_gossip_node(
+    validator_identity_keypair: &Arc<Keypair>,
     identity_keypair: &Arc<Keypair>,
     entrypoint_gossip: &SocketAddr,
     gossip_addr: &SocketAddr,
     gossip_socket: UdpSocket,
 ) -> (Arc<RwLock<ClusterInfo>>, Arc<AtomicBool>, GossipService) {
     let mut cluster_info = ClusterInfo::new(
-        ClusterInfo::gossip_contact_info(&identity_keypair.pubkey(), *gossip_addr),
+        ClusterInfo::gossip_contact_info(
+            &validator_identity_keypair.pubkey(),
+            &identity_keypair.pubkey(),
+            *gossip_addr,
+        ),
+        validator_identity_keypair.clone(),
         identity_keypair.clone(),
     );
     cluster_info.set_entrypoint(ContactInfo::new_gossip_entry_point(entrypoint_gossip));
@@ -755,6 +761,7 @@ pub fn main() {
         .get_matches();
 
     let identity_keypair = Arc::new(keypair_of(&matches, "identity").unwrap_or_else(Keypair::new));
+    let node_keypair = Arc::new(keypair_of(&matches, "node").unwrap_or_else(Keypair::new));
 
     let authorized_voter_keypairs = keypairs_of(&matches, "authorized_voter_keypairs")
         .map(|keypairs| keypairs.into_iter().map(Arc::new).collect())
@@ -1035,6 +1042,7 @@ pub fn main() {
 
     let mut node = Node::new_with_external_ip(
         &identity_keypair.pubkey(),
+        &node_keypair.pubkey(),
         &gossip_addr,
         dynamic_port_range,
         bind_address,
@@ -1079,6 +1087,7 @@ pub fn main() {
         if !no_genesis_fetch {
             let (cluster_info, gossip_exit_flag, gossip_service) = start_gossip_node(
                 &identity_keypair,
+                &node_keypair,
                 &cluster_entrypoint.gossip,
                 &node.info.gossip,
                 node.sockets.gossip.try_clone().unwrap(),
@@ -1203,6 +1212,7 @@ pub fn main() {
     let validator = Validator::new(
         node,
         &identity_keypair,
+        &node_keypair,
         &ledger_path,
         &vote_account,
         authorized_voter_keypairs,
