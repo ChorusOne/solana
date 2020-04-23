@@ -729,7 +729,6 @@ impl TestValidator {
             voting_keypair,
         } = create_genesis_config_with_leader_ex(
             mint_lamports,
-            &contact_info.id,
             &contact_info.validator_id,
             42,
             bootstrap_validator_lamports,
