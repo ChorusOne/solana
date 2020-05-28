@@ -59,7 +59,7 @@ fn test_exchange_local_cluster() {
     let faucet_addr = addr_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
 
     info!("Connecting to the cluster");
-    let (nodes, _) =
+    let nodes =
         discover_cluster(&cluster.entry_point_info.gossip, NUM_NODES).unwrap_or_else(|err| {
             error!("Failed to discover {} nodes: {:?}", NUM_NODES, err);
             exit(1);
@@ -86,7 +86,7 @@ fn test_exchange_bank_client() {
     solana_logger::setup();
     let (genesis_config, identity) = create_genesis_config(100_000_000_000_000);
     let mut bank = Bank::new(&genesis_config);
-    bank.add_static_program("exchange_program", id(), process_instruction);
+    bank.add_builtin_program("exchange_program", id(), process_instruction);
     let clients = vec![BankClient::new(bank)];
 
     let mut config = Config::default();

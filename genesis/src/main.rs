@@ -128,7 +128,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     let matches = App::new(crate_name!())
         .about(crate_description!())
-        .version(solana_clap_utils::version!())
+        .version(solana_version::version!())
         .arg(
             Arg::with_name("creation_time")
                 .long("creation-time")
@@ -516,9 +516,6 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         );
     }
 
-    if operating_mode == OperatingMode::Development {
-        solana_storage_program::rewards_pools::add_genesis_accounts(&mut genesis_config);
-    }
     solana_stake_program::add_genesis_accounts(&mut genesis_config);
 
     if let Some(files) = matches.values_of("primordial_accounts_file") {
@@ -558,7 +555,6 @@ mod tests {
     use std::fs::remove_file;
     use std::io::Write;
     use std::path::Path;
-    use tempfile;
 
     #[test]
     fn test_append_primordial_accounts_to_genesis() {
@@ -762,8 +758,6 @@ mod tests {
             &mut genesis_config,
         )
         .expect("genesis");
-
-        solana_storage_program::rewards_pools::add_genesis_accounts(&mut genesis_config);
 
         remove_file(path).unwrap();
 

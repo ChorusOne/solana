@@ -15,7 +15,7 @@ fn main() {
     solana_logger::setup_with_default("solana=info");
     solana_metrics::set_panic_hook("bench-tps");
 
-    let matches = cli::build_args(solana_clap_utils::version!()).get_matches();
+    let matches = cli::build_args(solana_version::version!()).get_matches();
     let cli_config = cli::extract_args(&matches);
 
     let cli::Config {
@@ -67,11 +67,10 @@ fn main() {
     }
 
     info!("Connecting to the cluster");
-    let (nodes, _archivers) =
-        discover_cluster(&entrypoint_addr, *num_nodes).unwrap_or_else(|err| {
-            eprintln!("Failed to discover {} nodes: {:?}", num_nodes, err);
-            exit(1);
-        });
+    let nodes = discover_cluster(&entrypoint_addr, *num_nodes).unwrap_or_else(|err| {
+        eprintln!("Failed to discover {} nodes: {:?}", num_nodes, err);
+        exit(1);
+    });
 
     let client = if *multi_client {
         let (client, num_clients) = get_multi_client(&nodes);

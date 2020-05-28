@@ -99,14 +99,11 @@ pub enum StakeAuthorize {
 
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 pub struct Lockup {
-    /// UnixTimestamp at which this stake will allow withdrawal, or
-    ///   changes to authorized staker or withdrawer, unless the
+    /// UnixTimestamp at which this stake will allow withdrawal, unless the
     ///   transaction is signed by the custodian
     pub unix_timestamp: UnixTimestamp,
-    /// epoch height at which this stake will allow withdrawal, or
-    ///   changes to authorized staker or withdrawer, unless the
+    /// epoch height at which this stake will allow withdrawal, unless the
     ///   transaction is signed by the custodian
-    ///  to the custodian
     pub epoch: Epoch,
     /// custodian signature on a transaction exempts the operation from
     ///  lockup constraints
@@ -152,21 +149,6 @@ impl Meta {
             self.lockup.custodian = custodian;
         }
         Ok(())
-    }
-
-    pub fn authorize_withdraw(
-        &mut self,
-        authority: &Pubkey,
-        signers: &HashSet<Pubkey>,
-        clock: &Clock,
-    ) -> Result<(), InstructionError> {
-        // verify that lockup has expired or that the authorization
-        //  is *also* signed by the custodian
-        if self.lockup.is_in_force(clock, signers) {
-            return Err(StakeError::LockupInForce.into());
-        }
-        self.authorized
-            .authorize(signers, authority, StakeAuthorize::Withdrawer)
     }
 }
 
@@ -950,39 +932,6 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_authorize_withdraw() {
-        let staker = Pubkey::new_rand();
-        let custodian = Pubkey::new_rand();
-        let mut meta = Meta {
-            authorized: Authorized::auto(&staker),
-            lockup: Lockup {
-                epoch: 0,
-                unix_timestamp: 0,
-                custodian,
-            },
-            ..Meta::default()
-        };
-        // verify sig check
-        let mut signers = HashSet::new();
-        signers.insert(staker);
-        let mut clock = Clock::default();
-
-        // verify lockup check
-        meta.lockup.epoch = 1;
-        assert_eq!(
-            meta.authorize_withdraw(&staker, &signers, &clock),
-            Err(StakeError::LockupInForce.into())
-        );
-        // verify lockup check defeated by custodian
-        signers.insert(custodian);
-        assert_eq!(meta.authorize_withdraw(&staker, &signers, &clock), Ok(()));
-        // verify lock expiry
-        signers.remove(&custodian);
-        clock.epoch = 1;
-        assert_eq!(meta.authorize_withdraw(&staker, &signers, &clock), Ok(()));
-    }
-
-    #[test]
     fn test_stake_state_stake_from_fail() {
         let mut stake_account = Account::new(0, std::mem::size_of::<StakeState>(), &id());
 
@@ -1095,7 +1044,6 @@ mod tests {
                     ..Delegation::default()
                 },
                 credits_observed: vote_state_credits,
-                ..Stake::default()
             }
         );
 
@@ -1143,7 +1091,6 @@ mod tests {
                     ..Delegation::default()
                 },
                 credits_observed: vote_state_credits,
-                ..Stake::default()
             }
         );
 
@@ -1201,7 +1148,7 @@ mod tests {
         };
 
         // save this off so stake.config.warmup_rate changes don't break this test
-        let increment = (1_000 as f64 * stake.warmup_cooldown_rate) as u64;
+        let increment = (1_000_f64 * stake.warmup_cooldown_rate) as u64;
 
         let mut stake_history = StakeHistory::default();
         // assert that this stake follows step function if there's no history
@@ -1758,7 +1705,7 @@ mod tests {
             assert_eq!(lockup.epoch, 1);
             assert_eq!(lockup.custodian, custodian);
         } else {
-            assert!(false);
+            panic!();
         }
 
         assert_eq!(
@@ -1780,7 +1727,7 @@ mod tests {
             assert_eq!(lockup.epoch, 3);
             assert_eq!(lockup.custodian, custodian);
         } else {
-            assert!(false);
+            panic!();
         }
 
         let new_custodian = Pubkey::new_rand();
@@ -1803,7 +1750,7 @@ mod tests {
             assert_eq!(lockup.epoch, 3);
             assert_eq!(lockup.custodian, new_custodian);
         } else {
-            assert!(false);
+            panic!();
         }
 
         assert_eq!(
@@ -2224,7 +2171,7 @@ mod tests {
         stake.credits_observed = 1;
         // this one should be able to collect exactly 1 (already observed one)
         assert_eq!(
-            Some((0, stake.delegation.stake * 1, 2)),
+            Some((0, stake.delegation.stake, 2)),
             stake.calculate_rewards(1.0, &vote_state, None)
         );
 
@@ -2234,7 +2181,7 @@ mod tests {
         stake.credits_observed = 2;
         // this one should be able to collect the one just added
         assert_eq!(
-            Some((0, stake.delegation.stake * 1, 3)),
+            Some((0, stake.delegation.stake, 3)),
             stake.calculate_rewards(1.0, &vote_state, None)
         );
 
@@ -2253,8 +2200,8 @@ mod tests {
             Some((
                 0,
                 stake.delegation.stake * 2 // epoch 0
-                    + stake.delegation.stake * 1 // epoch 1
-                    + stake.delegation.stake * 1, // epoch 2
+                    + stake.delegation.stake // epoch 1
+                    + stake.delegation.stake, // epoch 2
                 4
             )),
             stake.calculate_rewards(1.0, &vote_state, None)
@@ -2329,7 +2276,7 @@ mod tests {
             assert_eq!(authorized.staker, stake_pubkey0);
             assert_eq!(authorized.withdrawer, stake_pubkey0);
         } else {
-            assert!(false);
+            panic!();
         }
 
         // A second authorization signed by the stake_keyed_account should fail

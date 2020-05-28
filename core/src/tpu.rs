@@ -8,8 +8,9 @@ use crate::{
     cluster_info_vote_listener::{ClusterInfoVoteListener, VoteTracker},
     fetch_stage::FetchStage,
     poh_recorder::{PohRecorder, WorkingBankEntry},
+    rpc_subscriptions::RpcSubscriptions,
     sigverify::TransactionSigVerifier,
-    sigverify_stage::{DisabledSigVerifier, SigVerifyStage},
+    sigverify_stage::SigVerifyStage,
 };
 use crossbeam_channel::unbounded;
 use solana_ledger::{
@@ -43,7 +44,7 @@ impl Tpu {
         transactions_sockets: Vec<UdpSocket>,
         tpu_forwards_sockets: Vec<UdpSocket>,
         broadcast_sockets: Vec<UdpSocket>,
-        sigverify_disabled: bool,
+        subscriptions: &Arc<RpcSubscriptions>,
         transaction_status_sender: Option<TransactionStatusSender>,
         blockstore: &Arc<Blockstore>,
         broadcast_type: &BroadcastStageType,
@@ -62,11 +63,8 @@ impl Tpu {
         );
         let (verified_sender, verified_receiver) = unbounded();
 
-        let sigverify_stage = if !sigverify_disabled {
+        let sigverify_stage = {
             let verifier = TransactionSigVerifier::default();
-            SigVerifyStage::new(packet_receiver, verified_sender, verifier)
-        } else {
-            let verifier = DisabledSigVerifier::default();
             SigVerifyStage::new(packet_receiver, verified_sender, verifier)
         };
 
@@ -74,11 +72,11 @@ impl Tpu {
         let cluster_info_vote_listener = ClusterInfoVoteListener::new(
             &exit,
             cluster_info.clone(),
-            sigverify_disabled,
             verified_vote_sender,
             &poh_recorder,
             vote_tracker,
             bank_forks,
+            subscriptions.clone(),
         );
 
         let banking_stage = BankingStage::new(

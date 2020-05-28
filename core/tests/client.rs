@@ -46,7 +46,7 @@ fn test_rpc_client() {
 
     assert_eq!(
         client.get_version().unwrap().solana_core,
-        solana_clap_utils::version!()
+        solana_version::version!()
     );
 
     assert!(client.get_account(&bob_pubkey).is_err());
@@ -79,7 +79,7 @@ fn test_rpc_client() {
     assert!(confirmed_tx);
 
     assert_eq!(client.get_balance(&bob_pubkey).unwrap(), 20);
-    assert_eq!(client.get_balance(&alice.pubkey()).unwrap(), 999980);
+    assert_eq!(client.get_balance(&alice.pubkey()).unwrap(), 999_980);
 
     server.close().unwrap();
     remove_dir_all(ledger_path).unwrap();

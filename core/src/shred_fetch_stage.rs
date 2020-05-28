@@ -4,7 +4,8 @@ use bv::BitVec;
 use solana_ledger::bank_forks::BankForks;
 use solana_ledger::blockstore::MAX_DATA_SHREDS_PER_SLOT;
 use solana_ledger::shred::{
-    OFFSET_OF_SHRED_INDEX, OFFSET_OF_SHRED_SLOT, SIZE_OF_SHRED_INDEX, SIZE_OF_SHRED_SLOT,
+    CODING_SHRED, DATA_SHRED, OFFSET_OF_SHRED_INDEX, OFFSET_OF_SHRED_SLOT, OFFSET_OF_SHRED_TYPE,
+    SIZE_OF_SHRED_INDEX, SIZE_OF_SHRED_SLOT,
 };
 use solana_perf::cuda_runtime::PinnedVec;
 use solana_perf::packet::{limited_deserialize, Packet, PacketsRecycler};
@@ -20,14 +21,25 @@ use std::sync::RwLock;
 use std::thread::{self, Builder, JoinHandle};
 use std::time::Instant;
 
-pub type ShredsReceived = HashMap<Slot, BitVec<u64>>;
+pub type ShredsReceived = HashMap<(Slot, u8), BitVec<u64>>;
+
+#[derive(Default)]
+struct ShredFetchStats {
+    index_overrun: usize,
+    shred_count: usize,
+    index_bad_deserialize: usize,
+    index_out_of_bounds: usize,
+    slot_bad_deserialize: usize,
+    duplicate_shred: usize,
+    slot_out_of_range: usize,
+}
 
 pub struct ShredFetchStage {
     thread_hdls: Vec<JoinHandle<()>>,
 }
 
 impl ShredFetchStage {
-    fn get_slot_index(p: &Packet, index_overrun: &mut usize) -> Option<(u64, u32)> {
+    fn get_slot_index(p: &Packet, stats: &mut ShredFetchStats) -> Option<(u64, u32)> {
         let index_start = OFFSET_OF_SHRED_INDEX;
         let index_end = index_start + SIZE_OF_SHRED_INDEX;
         let slot_start = OFFSET_OF_SHRED_SLOT;
@@ -38,11 +50,17 @@ impl ShredFetchStage {
                 if index < MAX_DATA_SHREDS_PER_SLOT as u32 && slot_end <= p.meta.size {
                     if let Ok(slot) = limited_deserialize::<Slot>(&p.data[slot_start..slot_end]) {
                         return Some((slot, index));
+                    } else {
+                        stats.slot_bad_deserialize += 1;
                     }
+                } else {
+                    stats.index_out_of_bounds += 1;
                 }
+            } else {
+                stats.index_bad_deserialize += 1;
             }
         } else {
-            *index_overrun += 1;
+            stats.index_overrun += 1;
         }
         None
     }
@@ -50,7 +68,7 @@ impl ShredFetchStage {
     fn process_packet<F>(
         p: &mut Packet,
         shreds_received: &mut ShredsReceived,
-        index_overrun: &mut usize,
+        stats: &mut ShredFetchStats,
         last_root: Slot,
         last_slot: Slot,
         slots_per_epoch: u64,
@@ -59,18 +77,31 @@ impl ShredFetchStage {
         F: Fn(&mut Packet),
     {
         p.meta.discard = true;
-        if let Some((slot, index)) = Self::get_slot_index(p, index_overrun) {
+        if let Some((slot, index)) = Self::get_slot_index(p, stats) {
             // Seems reasonable to limit shreds to 2 epochs away
-            if slot > last_root && slot < (last_slot + 2 * slots_per_epoch) {
-                // Shred filter
-                let slot_received = shreds_received
-                    .entry(slot)
-                    .or_insert_with(|| BitVec::new_fill(false, MAX_DATA_SHREDS_PER_SLOT as u64));
-                if !slot_received.get(index.into()) {
-                    p.meta.discard = false;
-                    modify(p);
-                    slot_received.set(index.into(), true);
+            if slot > last_root
+                && slot < (last_slot + 2 * slots_per_epoch)
+                && p.meta.size > OFFSET_OF_SHRED_TYPE
+            {
+                let shred_type = p.data[OFFSET_OF_SHRED_TYPE];
+                if shred_type == DATA_SHRED || shred_type == CODING_SHRED {
+                    // Shred filter
+                    let slot_received =
+                        shreds_received
+                            .entry((slot, shred_type))
+                            .or_insert_with(|| {
+                                BitVec::new_fill(false, MAX_DATA_SHREDS_PER_SLOT as u64)
+                            });
+                    if !slot_received.get(index.into()) {
+                        p.meta.discard = false;
+                        modify(p);
+                        slot_received.set(index.into(), true);
+                    } else {
+                        stats.duplicate_shred += 1;
+                    }
                 }
+            } else {
+                stats.slot_out_of_range += 1;
             }
         }
     }
@@ -80,6 +111,7 @@ impl ShredFetchStage {
         recvr: PacketReceiver,
         sendr: PacketSender,
         bank_forks: Option<Arc<RwLock<BankForks>>>,
+        name: &'static str,
         modify: F,
     ) where
         F: Fn(&mut Packet),
@@ -91,6 +123,9 @@ impl ShredFetchStage {
         let mut last_root = 0;
         let mut last_slot = std::u64::MAX;
         let mut slots_per_epoch = 0;
+
+        let mut last_stats = Instant::now();
+        let mut stats = ShredFetchStats::default();
 
         while let Some(mut p) = recvr.iter().next() {
             if last_cleared.elapsed().as_millis() > 200 {
@@ -105,22 +140,32 @@ impl ShredFetchStage {
                     slots_per_epoch = root_bank.get_slots_in_epoch(root_bank.epoch());
                 }
             }
-            let mut index_overrun = 0;
-            let mut shred_count = 0;
+            stats.shred_count += p.packets.len();
             p.packets.iter_mut().for_each(|mut packet| {
-                shred_count += 1;
                 Self::process_packet(
                     &mut packet,
                     &mut shreds_received,
-                    &mut index_overrun,
+                    &mut stats,
                     last_root,
                     last_slot,
                     slots_per_epoch,
                     &modify,
                 );
             });
-            inc_new_counter_warn!("shred_fetch_stage-shred_index_overrun", index_overrun);
-            inc_new_counter_info!("shred_fetch_stage-shred_count", shred_count);
+            if last_stats.elapsed().as_millis() > 1000 {
+                datapoint_info!(
+                    name,
+                    ("index_overrun", stats.index_overrun, i64),
+                    ("shred_count", stats.shred_count, i64),
+                    ("slot_bad_deserialize", stats.slot_bad_deserialize, i64),
+                    ("index_bad_deserialize", stats.index_bad_deserialize, i64),
+                    ("index_out_of_bounds", stats.index_out_of_bounds, i64),
+                    ("slot_out_of_range", stats.slot_out_of_range, i64),
+                    ("duplicate_shred", stats.duplicate_shred, i64),
+                );
+                stats = ShredFetchStats::default();
+                last_stats = Instant::now();
+            }
             if sendr.send(p).is_err() {
                 break;
             }
@@ -133,6 +178,7 @@ impl ShredFetchStage {
         sender: PacketSender,
         recycler: Recycler<PinnedVec<Packet>>,
         bank_forks: Option<Arc<RwLock<BankForks>>>,
+        name: &'static str,
         modify: F,
     ) -> (Vec<JoinHandle<()>>, JoinHandle<()>)
     where
@@ -154,7 +200,7 @@ impl ShredFetchStage {
 
         let modifier_hdl = Builder::new()
             .name("solana-tvu-fetch-stage-packet-modifier".to_string())
-            .spawn(move || Self::modify_packets(packet_receiver, sender, bank_forks, modify))
+            .spawn(move || Self::modify_packets(packet_receiver, sender, bank_forks, name, modify))
             .unwrap();
         (streamers, modifier_hdl)
     }
@@ -185,6 +231,7 @@ impl ShredFetchStage {
             sender.clone(),
             recycler.clone(),
             bank_forks.clone(),
+            "shred_fetch_tvu_forwards",
             |p| p.meta.forward = true,
         );
 
@@ -194,6 +241,7 @@ impl ShredFetchStage {
             sender.clone(),
             recycler.clone(),
             bank_forks,
+            "shred_fetch_repair",
             |p| p.meta.repair = true,
         );
 
@@ -221,11 +269,51 @@ mod tests {
     use solana_ledger::shred::Shred;
 
     #[test]
+    fn test_data_code_same_index() {
+        solana_logger::setup();
+        let mut shreds_received = ShredsReceived::default();
+        let mut packet = Packet::default();
+        let mut stats = ShredFetchStats::default();
+
+        let slot = 1;
+        let shred = Shred::new_from_data(slot, 3, 0, None, true, true, 0, 0, 0);
+        shred.copy_to_packet(&mut packet);
+
+        let last_root = 0;
+        let last_slot = 100;
+        let slots_per_epoch = 10;
+        ShredFetchStage::process_packet(
+            &mut packet,
+            &mut shreds_received,
+            &mut stats,
+            last_root,
+            last_slot,
+            slots_per_epoch,
+            &|_p| {},
+        );
+        assert!(!packet.meta.discard);
+
+        let coding =
+            solana_ledger::shred::Shredder::generate_coding_shreds(slot, 1.0f32, &[shred], 10);
+        coding[0].copy_to_packet(&mut packet);
+        ShredFetchStage::process_packet(
+            &mut packet,
+            &mut shreds_received,
+            &mut stats,
+            last_root,
+            last_slot,
+            slots_per_epoch,
+            &|_p| {},
+        );
+        assert!(!packet.meta.discard);
+    }
+
+    #[test]
     fn test_shred_filter() {
         solana_logger::setup();
         let mut shreds_received = ShredsReceived::default();
         let mut packet = Packet::default();
-        let mut index_overrun = 0;
+        let mut stats = ShredFetchStats::default();
         let last_root = 0;
         let last_slot = 100;
         let slots_per_epoch = 10;
@@ -233,13 +321,13 @@ mod tests {
         ShredFetchStage::process_packet(
             &mut packet,
             &mut shreds_received,
-            &mut index_overrun,
+            &mut stats,
             last_root,
             last_slot,
             slots_per_epoch,
             &|_p| {},
         );
-        assert_eq!(index_overrun, 1);
+        assert_eq!(stats.index_overrun, 1);
         assert!(packet.meta.discard);
         let shred = Shred::new_from_data(1, 3, 0, None, true, true, 0, 0, 0);
         shred.copy_to_packet(&mut packet);
@@ -248,7 +336,7 @@ mod tests {
         ShredFetchStage::process_packet(
             &mut packet,
             &mut shreds_received,
-            &mut index_overrun,
+            &mut stats,
             3,
             last_slot,
             slots_per_epoch,
@@ -260,7 +348,7 @@ mod tests {
         ShredFetchStage::process_packet(
             &mut packet,
             &mut shreds_received,
-            &mut index_overrun,
+            &mut stats,
             last_root,
             last_slot,
             slots_per_epoch,
@@ -272,7 +360,7 @@ mod tests {
         ShredFetchStage::process_packet(
             &mut packet,
             &mut shreds_received,
-            &mut index_overrun,
+            &mut stats,
             last_root,
             last_slot,
             slots_per_epoch,
@@ -287,7 +375,7 @@ mod tests {
         ShredFetchStage::process_packet(
             &mut packet,
             &mut shreds_received,
-            &mut index_overrun,
+            &mut stats,
             last_root,
             last_slot,
             slots_per_epoch,
@@ -301,7 +389,7 @@ mod tests {
         ShredFetchStage::process_packet(
             &mut packet,
             &mut shreds_received,
-            &mut index_overrun,
+            &mut stats,
             last_root,
             last_slot,
             slots_per_epoch,
@@ -315,10 +403,10 @@ mod tests {
         let shred = Shred::new_from_data(1, 3, 0, None, true, true, 0, 0, 0);
         let mut packet = Packet::default();
         shred.copy_to_packet(&mut packet);
-        let mut index_overrun = 0;
+        let mut stats = ShredFetchStats::default();
         assert_eq!(
             Some((1, 3)),
-            ShredFetchStage::get_slot_index(&packet, &mut index_overrun)
+            ShredFetchStage::get_slot_index(&packet, &mut stats)
         );
     }
 }
