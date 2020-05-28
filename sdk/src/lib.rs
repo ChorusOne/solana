@@ -7,6 +7,7 @@ pub mod bpf_loader;
 pub mod clock;
 pub mod commitment_config;
 pub mod entrypoint_native;
+pub mod epoch_info;
 pub mod epoch_schedule;
 pub mod fee_calculator;
 pub mod hash;
@@ -57,6 +58,7 @@ pub mod timing;
 /// assert_eq!(id(), my_id);
 /// ```
 pub use solana_sdk_macro::declare_id;
+pub use solana_sdk_macro::pubkeys;
 
 // On-chain program specific modules
 pub mod account_info;

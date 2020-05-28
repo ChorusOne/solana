@@ -4,9 +4,13 @@ use console::{style, Emoji};
 use inflector::cases::titlecase::to_title_case;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use solana_client::rpc_response::{RpcEpochInfo, RpcKeyedAccount, RpcVoteAccountInfo};
+use solana_client::rpc_response::{
+    RpcAccountBalance, RpcKeyedAccount, RpcSupply, RpcVoteAccountInfo,
+};
 use solana_sdk::{
     clock::{self, Epoch, Slot, UnixTimestamp},
+    epoch_info::EpochInfo,
+    native_token::lamports_to_sol,
     stake_history::StakeHistoryEntry,
 };
 use solana_stake_program::stake_state::{Authorized, Lockup};
@@ -183,11 +187,11 @@ pub struct CliSlotStatus {
 #[serde(rename_all = "camelCase")]
 pub struct CliEpochInfo {
     #[serde(flatten)]
-    pub epoch_info: RpcEpochInfo,
+    pub epoch_info: EpochInfo,
 }
 
-impl From<RpcEpochInfo> for CliEpochInfo {
-    fn from(epoch_info: RpcEpochInfo) -> Self {
+impl From<EpochInfo> for CliEpochInfo {
+    fn from(epoch_info: EpochInfo) -> Self {
         Self { epoch_info }
     }
 }
@@ -896,6 +900,7 @@ impl fmt::Display for CliSignOnlyData {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CliSignature {
     pub signature: String,
 }
@@ -904,6 +909,100 @@ impl fmt::Display for CliSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f)?;
         writeln_name_value(f, "Signature:", &self.signature)?;
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliAccountBalances {
+    pub accounts: Vec<RpcAccountBalance>,
+}
+
+impl fmt::Display for CliAccountBalances {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(
+            f,
+            "{}",
+            style(format!("{:<44}  {}", "Address", "Balance",)).bold()
+        )?;
+        for account in &self.accounts {
+            writeln!(
+                f,
+                "{:<44}  {}",
+                account.address,
+                &format!("{} SOL", lamports_to_sol(account.lamports))
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliSupply {
+    pub total: u64,
+    pub circulating: u64,
+    pub non_circulating: u64,
+    pub non_circulating_accounts: Vec<String>,
+    #[serde(skip_serializing)]
+    pub print_accounts: bool,
+}
+
+impl From<RpcSupply> for CliSupply {
+    fn from(rpc_supply: RpcSupply) -> Self {
+        Self {
+            total: rpc_supply.total,
+            circulating: rpc_supply.circulating,
+            non_circulating: rpc_supply.non_circulating,
+            non_circulating_accounts: rpc_supply.non_circulating_accounts,
+            print_accounts: false,
+        }
+    }
+}
+
+impl fmt::Display for CliSupply {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln_name_value(f, "Total:", &format!("{} SOL", lamports_to_sol(self.total)))?;
+        writeln_name_value(
+            f,
+            "Circulating:",
+            &format!("{} SOL", lamports_to_sol(self.circulating)),
+        )?;
+        writeln_name_value(
+            f,
+            "Non-Circulating:",
+            &format!("{} SOL", lamports_to_sol(self.non_circulating)),
+        )?;
+        if self.print_accounts {
+            writeln!(f)?;
+            writeln_name_value(f, "Non-Circulating Accounts:", " ")?;
+            for account in &self.non_circulating_accounts {
+                writeln!(f, "  {}", account)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliFees {
+    pub slot: Slot,
+    pub blockhash: String,
+    pub lamports_per_signature: u64,
+    pub last_valid_slot: Slot,
+}
+
+impl fmt::Display for CliFees {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln_name_value(f, "Blockhash:", &self.blockhash)?;
+        writeln_name_value(
+            f,
+            "Lamports per signature:",
+            &self.lamports_per_signature.to_string(),
+        )?;
+        writeln_name_value(f, "Last valid slot:", &self.last_valid_slot.to_string())?;
         Ok(())
     }
 }

@@ -26,13 +26,13 @@ use solana_sdk::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    io::{BufReader, Error as IOError, Read},
-    path::{Path, PathBuf},
+    ops::RangeBounds,
+    path::PathBuf,
     sync::{Arc, Mutex, RwLock},
 };
 
 #[derive(Default, Debug)]
-struct ReadonlyLock {
+pub(crate) struct ReadonlyLock {
     lock_count: Mutex<u64>,
 }
 
@@ -46,10 +46,10 @@ pub struct Accounts {
     pub accounts_db: Arc<AccountsDB>,
 
     /// set of writable accounts which are currently in the pipeline
-    account_locks: Mutex<HashSet<Pubkey>>,
+    pub(crate) account_locks: Mutex<HashSet<Pubkey>>,
 
     /// Set of read-only accounts which are currently in the pipeline, caching number of locks.
-    readonly_locks: Arc<RwLock<Option<HashMap<Pubkey, ReadonlyLock>>>>,
+    pub(crate) readonly_locks: Arc<RwLock<Option<HashMap<Pubkey, ReadonlyLock>>>>,
 }
 
 // for the load instructions
@@ -65,6 +65,15 @@ pub enum AccountAddressFilter {
 }
 
 impl Accounts {
+    pub(crate) fn new_empty(accounts_db: AccountsDB) -> Self {
+        Self {
+            accounts_db: Arc::new(accounts_db),
+            account_locks: Mutex::new(HashSet::new()),
+            readonly_locks: Arc::new(RwLock::new(Some(HashMap::new()))),
+            ..Self::default()
+        }
+    }
+
     pub fn new(paths: Vec<PathBuf>) -> Self {
         Self::new_with_frozen_accounts(paths, &HashMap::default(), &[])
     }
@@ -99,25 +108,6 @@ impl Accounts {
         Arc::get_mut(&mut self.accounts_db)
             .unwrap()
             .freeze_accounts(ancestors, frozen_account_pubkeys);
-    }
-
-    pub fn from_stream<R: Read, P: AsRef<Path>>(
-        account_paths: &[PathBuf],
-        ancestors: &Ancestors,
-        frozen_account_pubkeys: &[Pubkey],
-        stream: &mut BufReader<R>,
-        stream_append_vecs_path: P,
-    ) -> std::result::Result<Self, IOError> {
-        let mut accounts_db = AccountsDB::new(account_paths.to_vec());
-        accounts_db.accounts_from_stream(stream, stream_append_vecs_path)?;
-        accounts_db.freeze_accounts(ancestors, frozen_account_pubkeys);
-
-        Ok(Accounts {
-            slot: 0,
-            accounts_db: Arc::new(accounts_db),
-            account_locks: Mutex::new(HashSet::new()),
-            readonly_locks: Arc::new(RwLock::new(Some(HashMap::new()))),
-        })
     }
 
     /// Return true if the slice has any duplicate elements
@@ -428,10 +418,7 @@ impl Accounts {
                             AccountAddressFilter::Exclude => !filter_by_address.contains(&pubkey),
                             AccountAddressFilter::Include => filter_by_address.contains(&pubkey),
                         };
-                        should_include_pubkey
-                            && account.lamports != 0
-                            && !(account.lamports == std::u64::MAX
-                                && account.owner == solana_storage_program::id())
+                        should_include_pubkey && account.lamports != 0
                     })
                     .map(|(pubkey, account, _slot)| (*pubkey, account.lamports))
                 {
@@ -455,6 +442,21 @@ impl Accounts {
         }
     }
 
+    fn load_while_filtering<F: Fn(&Account) -> bool>(
+        collector: &mut Vec<(Pubkey, Account)>,
+        option: Option<(&Pubkey, Account, Slot)>,
+        filter: F,
+    ) {
+        if let Some(data) = option
+            // Don't ever load zero lamport accounts into runtime because
+            // the existence of zero-lamport accounts are never deterministic!!
+            .filter(|(_, account, _)| account.lamports > 0 && filter(account))
+            .map(|(pubkey, account, _slot)| (*pubkey, account))
+        {
+            collector.push(data)
+        }
+    }
+
     pub fn load_by_program(
         &self,
         ancestors: &Ancestors,
@@ -463,15 +465,23 @@ impl Accounts {
         self.accounts_db.scan_accounts(
             ancestors,
             |collector: &mut Vec<(Pubkey, Account)>, option| {
-                if let Some(data) = option
-                    .filter(|(_, account, _)| {
-                        (program_id.is_none() || Some(&account.owner) == program_id)
-                            && account.lamports != 0
-                    })
-                    .map(|(pubkey, account, _slot)| (*pubkey, account))
-                {
-                    collector.push(data)
-                }
+                Self::load_while_filtering(collector, option, |account| {
+                    program_id.is_none() || Some(&account.owner) == program_id
+                })
+            },
+        )
+    }
+
+    pub fn load_to_collect_rent_eagerly<R: RangeBounds<Pubkey>>(
+        &self,
+        ancestors: &Ancestors,
+        range: R,
+    ) -> Vec<(Pubkey, Account)> {
+        self.accounts_db.range_scan_accounts(
+            ancestors,
+            range,
+            |collector: &mut Vec<(Pubkey, Account)>, option| {
+                Self::load_while_filtering(collector, option, |_| true)
             },
         )
     }
@@ -766,16 +776,7 @@ mod tests {
     // TODO: all the bank tests are bank specific, issue: 2194
 
     use super::*;
-    use crate::{
-        accounts_db::{
-            tests::copy_append_vecs,
-            {get_temp_accounts_paths, AccountsDBSerialize},
-        },
-        bank::HashAgeKind,
-        rent_collector::RentCollector,
-    };
-    use bincode::serialize_into;
-    use rand::{thread_rng, Rng};
+    use crate::{bank::HashAgeKind, rent_collector::RentCollector};
     use solana_sdk::{
         account::Account,
         epoch_schedule::EpochSchedule,
@@ -790,15 +791,13 @@ mod tests {
         transaction::Transaction,
     };
     use std::{
-        io::Cursor,
         sync::atomic::{AtomicBool, AtomicU64, Ordering},
         {thread, time},
     };
-    use tempfile::TempDir;
 
     fn load_accounts_with_fee_and_rent(
         tx: Transaction,
-        ka: &Vec<(Pubkey, Account)>,
+        ka: &[(Pubkey, Account)],
         fee_calculator: &FeeCalculator,
         rent_collector: &RentCollector,
         error_counters: &mut ErrorCounters,
@@ -811,7 +810,7 @@ mod tests {
         }
 
         let ancestors = vec![(0, 0)].into_iter().collect();
-        let res = accounts.load_accounts(
+        accounts.load_accounts(
             &ancestors,
             &[tx],
             None,
@@ -819,13 +818,12 @@ mod tests {
             &hash_queue,
             error_counters,
             rent_collector,
-        );
-        res
+        )
     }
 
     fn load_accounts_with_fee(
         tx: Transaction,
-        ka: &Vec<(Pubkey, Account)>,
+        ka: &[(Pubkey, Account)],
         fee_calculator: &FeeCalculator,
         error_counters: &mut ErrorCounters,
     ) -> Vec<(Result<TransactionLoadResult>, Option<HashAgeKind>)> {
@@ -835,7 +833,7 @@ mod tests {
 
     fn load_accounts(
         tx: Transaction,
-        ka: &Vec<(Pubkey, Account)>,
+        ka: &[(Pubkey, Account)],
         error_counters: &mut ErrorCounters,
     ) -> Vec<(Result<TransactionLoadResult>, Option<HashAgeKind>)> {
         let fee_calculator = FeeCalculator::default();
@@ -1069,7 +1067,7 @@ mod tests {
         // Fee leaves non-zero, but sub-min_balance balance fails
         accounts[0].1.lamports = 3 * min_balance / 2;
         let loaded_accounts = load_accounts_with_fee_and_rent(
-            tx.clone(),
+            tx,
             &accounts,
             &fee_calculator,
             &rent_collector,
@@ -1452,61 +1450,6 @@ mod tests {
         accounts.bank_hash_at(1);
     }
 
-    fn check_accounts(accounts: &Accounts, pubkeys: &Vec<Pubkey>, num: usize) {
-        for _ in 1..num {
-            let idx = thread_rng().gen_range(0, num - 1);
-            let ancestors = vec![(0, 0)].into_iter().collect();
-            let account = accounts.load_slow(&ancestors, &pubkeys[idx]);
-            let account1 = Some((
-                Account::new((idx + 1) as u64, 0, &Account::default().owner),
-                0,
-            ));
-            assert_eq!(account, account1);
-        }
-    }
-
-    #[test]
-    fn test_accounts_serialize() {
-        solana_logger::setup();
-        let (_accounts_dir, paths) = get_temp_accounts_paths(4).unwrap();
-        let accounts = Accounts::new(paths);
-
-        let mut pubkeys: Vec<Pubkey> = vec![];
-        create_test_accounts(&accounts, &mut pubkeys, 100, 0);
-        check_accounts(&accounts, &pubkeys, 100);
-        accounts.add_root(0);
-
-        let mut writer = Cursor::new(vec![]);
-        serialize_into(
-            &mut writer,
-            &AccountsDBSerialize::new(
-                &*accounts.accounts_db,
-                0,
-                &accounts.accounts_db.get_snapshot_storages(0),
-            ),
-        )
-        .unwrap();
-
-        let copied_accounts = TempDir::new().unwrap();
-
-        // Simulate obtaining a copy of the AppendVecs from a tarball
-        copy_append_vecs(&accounts.accounts_db, copied_accounts.path()).unwrap();
-
-        let buf = writer.into_inner();
-        let mut reader = BufReader::new(&buf[..]);
-        let (_accounts_dir, daccounts_paths) = get_temp_accounts_paths(2).unwrap();
-        let daccounts = Accounts::from_stream(
-            &daccounts_paths,
-            &HashMap::default(),
-            &[],
-            &mut reader,
-            copied_accounts.path(),
-        )
-        .unwrap();
-        check_accounts(&daccounts, &pubkeys, 100);
-        assert_eq!(accounts.bank_hash_at(0), daccounts.bank_hash_at(0));
-    }
-
     #[test]
     fn test_accounts_locks() {
         let keypair0 = Keypair::new();
@@ -1680,7 +1623,7 @@ mod tests {
                 }
             }
         });
-        let counter_clone = counter.clone();
+        let counter_clone = counter;
         for _ in 0..5 {
             let txs = vec![readonly_tx.clone()];
             let results = accounts_arc.clone().lock_accounts(&txs, None);
@@ -1747,7 +1690,7 @@ mod tests {
             Some(HashAgeKind::Extant),
         );
 
-        let transaction_accounts1 = vec![account1, account2.clone()];
+        let transaction_accounts1 = vec![account1, account2];
         let transaction_loaders1 = vec![];
         let transaction_rent1 = 0;
         let loaded1 = (
@@ -1783,12 +1726,10 @@ mod tests {
         assert_eq!(collected_accounts.len(), 2);
         assert!(collected_accounts
             .iter()
-            .find(|(pubkey, _account)| *pubkey == &keypair0.pubkey())
-            .is_some());
+            .any(|(pubkey, _account)| *pubkey == &keypair0.pubkey()));
         assert!(collected_accounts
             .iter()
-            .find(|(pubkey, _account)| *pubkey == &keypair1.pubkey())
-            .is_some());
+            .any(|(pubkey, _account)| *pubkey == &keypair1.pubkey()));
 
         // Ensure readonly_lock reflects lock
         let readonly_locks = accounts.readonly_locks.read().unwrap();

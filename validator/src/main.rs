@@ -28,6 +28,7 @@ use solana_ledger::{
 use solana_perf::recycler::enable_recycler_warming;
 use solana_sdk::{
     clock::Slot,
+    commitment_config::CommitmentConfig,
     genesis_config::GenesisConfig,
     hash::Hash,
     pubkey::Pubkey,
@@ -133,13 +134,21 @@ fn get_trusted_snapshot_hashes(
 }
 
 fn start_gossip_node(
+    validator_identity_keypair: &Arc<Keypair>,
     identity_keypair: &Arc<Keypair>,
     entrypoint_gossip: &SocketAddr,
     gossip_addr: &SocketAddr,
     gossip_socket: UdpSocket,
+    expected_shred_version: Option<u16>,
 ) -> (Arc<ClusterInfo>, Arc<AtomicBool>, GossipService) {
     let cluster_info = ClusterInfo::new(
-        ClusterInfo::gossip_contact_info(&identity_keypair.pubkey(), *gossip_addr),
+        ClusterInfo::gossip_contact_info(
+            &validator_identity_keypair.pubkey(),
+            &identity_keypair.pubkey(),
+            *gossip_addr,
+            expected_shred_version.unwrap_or(0),
+        ),
+        validator_identity_keypair.clone(),
         identity_keypair.clone(),
     );
     cluster_info.set_entrypoint(ContactInfo::new_gossip_entry_point(entrypoint_gossip));
@@ -282,8 +291,10 @@ fn check_vote_account(
     authorized_voter_pubkeys: &[Pubkey],
 ) -> Result<(), String> {
     let vote_account = rpc_client
-        .get_account(vote_account_address)
-        .map_err(|err| format!("vote account not found: {}", err.to_string()))?;
+        .get_account_with_commitment(vote_account_address, CommitmentConfig::root())
+        .map_err(|err| format!("failed to fetch vote account: {}", err.to_string()))?
+        .value
+        .ok_or_else(|| format!("vote account does not exist: {}", vote_account_address))?;
 
     if vote_account.owner != solana_vote_program::id() {
         return Err(format!(
@@ -293,8 +304,10 @@ fn check_vote_account(
     }
 
     let identity_account = rpc_client
-        .get_account(identity_pubkey)
-        .map_err(|err| format!("Identity account not found: {}", err.to_string()))?;
+        .get_account_with_commitment(identity_pubkey, CommitmentConfig::root())
+        .map_err(|err| format!("failed to fetch identity account: {}", err.to_string()))?
+        .value
+        .ok_or_else(|| format!("identity account does not exist: {}", identity_pubkey))?;
 
     let vote_state = solana_vote_program::vote_state::VoteState::from(&vote_account);
     if let Some(vote_state) = vote_state {
@@ -472,7 +485,7 @@ pub fn main() {
     let default_genesis_archive_unpacked_size = &MAX_GENESIS_ARCHIVE_UNPACKED_SIZE.to_string();
 
     let matches = App::new(crate_name!()).about(crate_description!())
-        .version(solana_clap_utils::version!())
+        .version(solana_version::version!())
         .arg(
             Arg::with_name(SKIP_SEED_PHRASE_VALIDATION_ARG.name)
                 .long(SKIP_SEED_PHRASE_VALIDATION_ARG.long)
@@ -509,15 +522,6 @@ pub fn main() {
                 .help("Validator vote account public key.  If unspecified voting will be disabled. \
                        The authorized voter for the account must either be the --identity keypair \
                        or with the --authorized-voter argument")
-        )
-        .arg(
-            Arg::with_name("storage_keypair")
-                .long("storage-keypair")
-                .value_name("PATH")
-                .hidden(true) // Don't document this argument to discourage its use
-                .takes_value(true)
-                .validator(is_keypair_or_ask_keyword)
-                .help("File containing the storage account keypair.  Default is an ephemeral keypair"),
         )
         .arg(
             Arg::with_name("init_complete_file")
@@ -571,12 +575,6 @@ pub fn main() {
                 .conflicts_with("no_voting")
                 .requires("entrypoint")
                 .help("Skip the RPC vote account sanity check")
-        )
-        .arg(
-            Arg::with_name("dev_no_sigverify")
-                .long("dev-no-sigverify")
-                .takes_value(false)
-                .help("Run without signature verification"),
         )
         .arg(
             Arg::with_name("dev_halt_at_slot")
@@ -824,12 +822,11 @@ pub fn main() {
         .get_matches();
 
     let identity_keypair = Arc::new(keypair_of(&matches, "identity").unwrap_or_else(Keypair::new));
+    let node_keypair = Arc::new(keypair_of(&matches, "node").unwrap_or_else(Keypair::new));
 
     let authorized_voter_keypairs = keypairs_of(&matches, "authorized_voter_keypairs")
         .map(|keypairs| keypairs.into_iter().map(Arc::new).collect())
         .unwrap_or_else(|| vec![identity_keypair.clone()]);
-
-    let storage_keypair = keypair_of(&matches, "storage_keypair").unwrap_or_else(Keypair::new);
 
     let ledger_path = PathBuf::from(matches.value_of("ledger_path").unwrap());
     let init_complete_file = matches.value_of("init_complete_file");
@@ -867,7 +864,6 @@ pub fn main() {
     };
 
     let mut validator_config = ValidatorConfig {
-        dev_sigverify_disabled: matches.is_present("dev_no_sigverify"),
         dev_halt_at_slot: value_t!(matches, "dev_halt_at_slot", Slot).ok(),
         expected_genesis_hash: matches
             .value_of("expected_genesis_hash")
@@ -1024,7 +1020,7 @@ pub fn main() {
         env::set_var("RUST_BACKTRACE", "1")
     }
 
-    info!("{} {}", crate_name!(), solana_clap_utils::version!());
+    info!("{} {}", crate_name!(), solana_version::version!());
     info!("Starting validator with: {:#?}", std::env::args_os());
 
     solana_metrics::set_host_id(identity_keypair.pubkey().to_string());
@@ -1084,6 +1080,7 @@ pub fn main() {
 
     let mut node = Node::new_with_external_ip(
         &identity_keypair.pubkey(),
+        &node_keypair.pubkey(),
         &gossip_addr,
         dynamic_port_range,
         bind_address,
@@ -1108,7 +1105,7 @@ pub fn main() {
                         TcpListener::bind(&SocketAddr::from((rpc_bind_address, *port)))
                             .unwrap_or_else(|err| {
                                 error!("Unable to bind to tcp/{} for {}: {}", port, purpose, err);
-                                std::process::exit(1);
+                                exit(1);
                             }),
                     ));
                 }
@@ -1120,17 +1117,21 @@ pub fn main() {
             tcp_listeners.push((node.info.gossip.port(), ip_echo));
         }
 
-        solana_net_utils::verify_reachable_ports(
+        if !solana_net_utils::verify_reachable_ports(
             &cluster_entrypoint.gossip,
             tcp_listeners,
             &udp_sockets,
-        );
+        ) {
+            exit(1);
+        }
         if !no_genesis_fetch {
             let (cluster_info, gossip_exit_flag, gossip_service) = start_gossip_node(
                 &identity_keypair,
+                &node_keypair,
                 &cluster_entrypoint.gossip,
                 &node.info.gossip,
                 node.sockets.gossip.try_clone().unwrap(),
+                validator_config.expected_shred_version,
             );
 
             let mut blacklisted_rpc_nodes = HashSet::new();
@@ -1188,7 +1189,7 @@ pub fn main() {
                 })
                 .and_then(|_| {
                     if let Some(snapshot_hash) = snapshot_hash {
-                        rpc_client.get_slot()
+                        rpc_client.get_slot_with_commitment(CommitmentConfig::root())
                             .map_err(|err| format!("Failed to get RPC node slot: {}", err))
                             .and_then(|slot| {
                                info!("RPC node root slot: {}", slot);
@@ -1253,10 +1254,10 @@ pub fn main() {
     let validator = Validator::new(
         node,
         &identity_keypair,
+        &node_keypair,
         &ledger_path,
         &vote_account,
         authorized_voter_keypairs,
-        &Arc::new(storage_keypair),
         cluster_entrypoint.as_ref(),
         !skip_poh_verify,
         &validator_config,

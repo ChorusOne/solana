@@ -183,6 +183,7 @@ pub fn commitment_of(matches: &ArgMatches<'_>, name: &str) -> Option<CommitmentC
         "max" => CommitmentConfig::max(),
         "recent" => CommitmentConfig::recent(),
         "root" => CommitmentConfig::root(),
+        "single" => CommitmentConfig::single(),
         _ => CommitmentConfig::default(),
     })
 }
@@ -349,16 +350,16 @@ mod tests {
         let matches = app()
             .clone()
             .get_matches_from(vec!["test", "--single", "50"]);
-        assert_eq!(lamports_of_sol(&matches, "single"), Some(50000000000));
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(50_000_000_000));
         assert_eq!(lamports_of_sol(&matches, "multiple"), None);
         let matches = app()
             .clone()
             .get_matches_from(vec!["test", "--single", "1.5"]);
-        assert_eq!(lamports_of_sol(&matches, "single"), Some(1500000000));
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(1_500_000_000));
         assert_eq!(lamports_of_sol(&matches, "multiple"), None);
         let matches = app()
             .clone()
             .get_matches_from(vec!["test", "--single", "0.03"]);
-        assert_eq!(lamports_of_sol(&matches, "single"), Some(30000000));
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(30_000_000));
     }
 }

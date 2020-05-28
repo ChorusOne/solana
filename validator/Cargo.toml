@@ -9,12 +9,12 @@ license = "Apache-2.0"
 homepage = "https://solana.com/"
 
 [dependencies]
-clap = "2.33.0"
+clap = "2.33.1"
 chrono = { version = "0.4.11", features = ["serde"] }
 console = "0.10.1"
 log = "0.4.8"
 rand = "0.7.0"
-serde_json = "1.0.51"
+serde_json = "1.0.53"
 solana-clap-utils = { path = "../clap-utils", version = "1.2.0" }
 solana-client = { path = "../client", version = "1.2.0" }
 solana-core = { path = "../core", version = "1.2.0" }
@@ -27,12 +27,13 @@ solana-metrics = { path = "../metrics", version = "1.2.0" }
 solana-net-utils = { path = "../net-utils", version = "1.2.0" }
 solana-runtime = { path = "../runtime", version = "1.2.0" }
 solana-sdk = { path = "../sdk", version = "1.2.0" }
+solana-version = { path = "../version", version = "1.2.0" }
 solana-vote-program = { path = "../programs/vote", version = "1.2.0" }
 solana-vote-signer = { path = "../vote-signer", version = "1.2.0" }
 
 [target."cfg(unix)".dependencies]
-libc = "0.2.66"
-signal-hook = "0.1.13"
+libc = "0.2.71"
+signal-hook = "0.1.15"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

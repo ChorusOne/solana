@@ -67,6 +67,7 @@ if [[ $CI_OS_NAME = windows ]]; then
     solana-install-init
     solana-keygen
     solana-stake-accounts
+    solana-tokens
   )
 else
   ./fetch-perf-libs.sh
@@ -99,7 +100,9 @@ else
     solana-net-shaper
     solana-stake-accounts
     solana-stake-monitor
+    solana-stake-o-matic
     solana-sys-tuner
+    solana-tokens
     solana-validator
     solana-watchtower
   )

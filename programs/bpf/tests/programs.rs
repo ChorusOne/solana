@@ -93,7 +93,7 @@ mod bpf {
                 .native_instruction_processors
                 .push(solana_bpf_loader_program!());
             let bank = Arc::new(Bank::new(&genesis_config));
-            // Create bank with specific slot, used by solana_bpf_rust_sysvar test
+            // Create bank with a specific slot, used by solana_bpf_rust_sysvar test
             let bank =
                 Bank::new_from_parent(&bank, &Pubkey::default(), DEFAULT_SLOTS_PER_EPOCH + 1);
             let bank_client = BankClient::new(bank);
@@ -309,6 +309,10 @@ mod bpf {
     fn test_program_bpf_invoke() {
         solana_logger::setup();
 
+        const TEST_SUCCESS: u8 = 1;
+        const TEST_PRIVILEGE_ESCALATION_SIGNER: u8 = 2;
+        const TEST_PRIVILEGE_ESCALATION_WRITABLE: u8 = 3;
+
         let mut programs = Vec::new();
         #[cfg(feature = "bpf_c")]
         {
@@ -333,20 +337,26 @@ mod bpf {
             let bank = Arc::new(Bank::new(&genesis_config));
             let bank_client = BankClient::new_shared(&bank);
 
-            let program_id = load_bpf_program(&bank_client, &mint_keypair, program.0);
+            let invoke_program_id = load_bpf_program(&bank_client, &mint_keypair, program.0);
             let invoked_program_id = load_bpf_program(&bank_client, &mint_keypair, program.1);
 
-            let account = Account::new(42, 100, &program_id);
             let argument_keypair = Keypair::new();
+            let account = Account::new(41, 100, &invoke_program_id);
             bank.store_account(&argument_keypair.pubkey(), &account);
 
-            let account = Account::new(10, 10, &invoked_program_id);
             let invoked_argument_keypair = Keypair::new();
+            let account = Account::new(10, 10, &invoked_program_id);
             bank.store_account(&invoked_argument_keypair.pubkey(), &account);
 
-            let derived_key =
-                Pubkey::create_program_address(&["Lil'", "Bits"], &invoked_program_id).unwrap();
+            let from_keypair = Keypair::new();
+            let account = Account::new(43, 0, &solana_sdk::system_program::id());
+            bank.store_account(&from_keypair.pubkey(), &account);
+
+            let derived_key1 =
+                Pubkey::create_program_address(&["You pass butter"], &invoke_program_id).unwrap();
             let derived_key2 =
+                Pubkey::create_program_address(&["Lil'", "Bits"], &invoked_program_id).unwrap();
+            let derived_key3 =
                 Pubkey::create_program_address(&["Gar Ma Nar Nar"], &invoked_program_id).unwrap();
 
             let account_metas = vec![
@@ -356,19 +366,75 @@ mod bpf {
                 AccountMeta::new(invoked_argument_keypair.pubkey(), true),
                 AccountMeta::new_readonly(invoked_program_id, false),
                 AccountMeta::new(argument_keypair.pubkey(), true),
-                AccountMeta::new(derived_key, false),
-                AccountMeta::new_readonly(derived_key2, false),
+                AccountMeta::new(derived_key1, false),
+                AccountMeta::new(derived_key2, false),
+                AccountMeta::new_readonly(derived_key3, false),
+                AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+                AccountMeta::new(from_keypair.pubkey(), true),
             ];
 
-            let instruction = Instruction::new(program_id, &1u8, account_metas);
-            let message = Message::new(&[instruction]);
+            // success cases
 
+            let instruction =
+                Instruction::new(invoke_program_id, &TEST_SUCCESS, account_metas.clone());
+            let message = Message::new(&[instruction]);
             assert!(bank_client
                 .send_message(
-                    &[&mint_keypair, &argument_keypair, &invoked_argument_keypair],
+                    &[
+                        &mint_keypair,
+                        &argument_keypair,
+                        &invoked_argument_keypair,
+                        &from_keypair
+                    ],
                     message,
                 )
                 .is_ok());
+
+            // failure cases
+
+            let instruction = Instruction::new(
+                invoke_program_id,
+                &TEST_PRIVILEGE_ESCALATION_SIGNER,
+                account_metas.clone(),
+            );
+            let message = Message::new(&[instruction]);
+            assert_eq!(
+                bank_client
+                    .send_message(
+                        &[
+                            &mint_keypair,
+                            &argument_keypair,
+                            &invoked_argument_keypair,
+                            &from_keypair
+                        ],
+                        message,
+                    )
+                    .unwrap_err()
+                    .unwrap(),
+                TransactionError::InstructionError(0, InstructionError::Custom(194969602))
+            );
+
+            let instruction = Instruction::new(
+                invoke_program_id,
+                &TEST_PRIVILEGE_ESCALATION_WRITABLE,
+                account_metas.clone(),
+            );
+            let message = Message::new(&[instruction]);
+            assert_eq!(
+                bank_client
+                    .send_message(
+                        &[
+                            &mint_keypair,
+                            &argument_keypair,
+                            &invoked_argument_keypair,
+                            &from_keypair
+                        ],
+                        message,
+                    )
+                    .unwrap_err()
+                    .unwrap(),
+                TransactionError::InstructionError(0, InstructionError::Custom(194969602))
+            );
         }
     }
 }

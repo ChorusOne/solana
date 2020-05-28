@@ -1,9 +1,10 @@
 use crate::{
-    cli::{check_account_for_fee, CliCommand, CliCommandInfo, CliConfig, CliError, ProcessResult},
+    cli::{CliCommand, CliCommandInfo, CliConfig, CliError, ProcessResult},
     cli_output::*,
     display::println_name_value,
+    spend_utils::{resolve_spend_tx_and_check_account_balance, SpendAmount},
 };
-use clap::{value_t, value_t_or_exit, App, Arg, ArgMatches, SubCommand};
+use clap::{value_t, value_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand};
 use console::{style, Emoji};
 use indicatif::{ProgressBar, ProgressStyle};
 use solana_clap_utils::{
@@ -15,6 +16,7 @@ use solana_clap_utils::{
 use solana_client::{
     pubsub_client::{PubsubClient, SlotInfoMessage},
     rpc_client::RpcClient,
+    rpc_config::{RpcLargestAccountsConfig, RpcLargestAccountsFilter},
     rpc_request::MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE,
 };
 use solana_remote_wallet::remote_wallet::RemoteWalletManager;
@@ -23,12 +25,10 @@ use solana_sdk::{
     clock::{self, Clock, Slot},
     commitment_config::CommitmentConfig,
     epoch_schedule::Epoch,
-    hash::Hash,
     message::Message,
     native_token::lamports_to_sol,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    system_instruction,
+    pubkey::{self, Pubkey},
+    system_instruction, system_program,
     sysvar::{self, Sysvar},
     transaction::Transaction,
 };
@@ -120,7 +120,35 @@ impl ClusterQuerySubCommands for App<'_, '_> {
             .arg(commitment_arg()),
         )
         .subcommand(
+            SubCommand::with_name("largest-accounts").about("Get addresses of largest cluster accounts")
+            .arg(
+                Arg::with_name("circulating")
+                    .long("circulating")
+                    .takes_value(false)
+                    .help("Filter address list to only circulating accounts")
+            )
+            .arg(
+                Arg::with_name("non_circulating")
+                    .long("non-circulating")
+                    .takes_value(false)
+                    .conflicts_with("circulating")
+                    .help("Filter address list to only non-circulating accounts")
+            )
+            .arg(commitment_arg()),
+        )
+        .subcommand(
+            SubCommand::with_name("supply").about("Get information about the cluster supply of SOL")
+            .arg(
+                Arg::with_name("print_accounts")
+                    .long("print-accounts")
+                    .takes_value(false)
+                    .help("Print list of non-circualting account addresses")
+            )
+            .arg(commitment_arg()),
+        )
+        .subcommand(
             SubCommand::with_name("total-supply").about("Get total number of SOL")
+            .setting(AppSettings::Hidden)
             .arg(commitment_arg()),
         )
         .subcommand(
@@ -341,6 +369,36 @@ pub fn parse_get_epoch(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliEr
     })
 }
 
+pub fn parse_largest_accounts(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
+    let commitment_config = commitment_of(matches, COMMITMENT_ARG.long).unwrap();
+    let filter = if matches.is_present("circulating") {
+        Some(RpcLargestAccountsFilter::Circulating)
+    } else if matches.is_present("non_circulating") {
+        Some(RpcLargestAccountsFilter::NonCirculating)
+    } else {
+        None
+    };
+    Ok(CliCommandInfo {
+        command: CliCommand::LargestAccounts {
+            commitment_config,
+            filter,
+        },
+        signers: vec![],
+    })
+}
+
+pub fn parse_supply(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
+    let commitment_config = commitment_of(matches, COMMITMENT_ARG.long).unwrap();
+    let print_accounts = matches.is_present("print_accounts");
+    Ok(CliCommandInfo {
+        command: CliCommand::Supply {
+            commitment_config,
+            print_accounts,
+        },
+        signers: vec![],
+    })
+}
+
 pub fn parse_total_supply(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
     let commitment_config = commitment_of(matches, COMMITMENT_ARG.long).unwrap();
     Ok(CliCommandInfo {
@@ -393,8 +451,7 @@ pub fn parse_transaction_history(
 ) -> Result<CliCommandInfo, CliError> {
     let address = pubkey_of_signer(matches, "address", wallet_manager)?.unwrap();
     let end_slot = value_t!(matches, "end_slot", Slot).ok();
-    let slot_limit = value_t!(matches, "limit", u64)
-        .unwrap_or(MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE);
+    let slot_limit = value_t!(matches, "limit", u64).ok();
 
     Ok(CliCommandInfo {
         command: CliCommand::TransactionHistory {
@@ -540,13 +597,16 @@ pub fn process_cluster_version(rpc_client: &RpcClient) -> ProcessResult {
     Ok(remote_version.solana_core)
 }
 
-pub fn process_fees(rpc_client: &RpcClient) -> ProcessResult {
-    let (recent_blockhash, fee_calculator) = rpc_client.get_recent_blockhash()?;
-
-    Ok(format!(
-        "blockhash: {}\nlamports per signature: {}",
-        recent_blockhash, fee_calculator.lamports_per_signature
-    ))
+pub fn process_fees(rpc_client: &RpcClient, config: &CliConfig) -> ProcessResult {
+    let result = rpc_client.get_recent_blockhash_with_commitment(CommitmentConfig::default())?;
+    let (recent_blockhash, fee_calculator, last_valid_slot) = result.value;
+    let fees = CliFees {
+        slot: result.context.slot,
+        blockhash: recent_blockhash.to_string(),
+        lamports_per_signature: fee_calculator.lamports_per_signature,
+        last_valid_slot,
+    };
+    Ok(config.output_format.formatted_string(&fees))
 }
 
 pub fn process_leader_schedule(rpc_client: &RpcClient) -> ProcessResult {
@@ -648,7 +708,7 @@ pub fn process_show_block_production(
     slot_limit: Option<u64>,
 ) -> ProcessResult {
     let epoch_schedule = rpc_client.get_epoch_schedule()?;
-    let epoch_info = rpc_client.get_epoch_info_with_commitment(CommitmentConfig::max())?;
+    let epoch_info = rpc_client.get_epoch_info_with_commitment(CommitmentConfig::root())?;
 
     let epoch = epoch.unwrap_or(epoch_info.epoch);
     if epoch > epoch_info.epoch {
@@ -707,7 +767,7 @@ pub fn process_show_block_production(
 
     progress_bar.set_message(&format!("Fetching leader schedule for epoch {}...", epoch));
     let leader_schedule = rpc_client
-        .get_leader_schedule_with_commitment(Some(start_slot), CommitmentConfig::max())?;
+        .get_leader_schedule_with_commitment(Some(start_slot), CommitmentConfig::root())?;
     if leader_schedule.is_none() {
         return Err(format!("Unable to fetch leader schedule for slot {}", start_slot).into());
     }
@@ -792,6 +852,34 @@ pub fn process_show_block_production(
     Ok(config.output_format.formatted_string(&block_production))
 }
 
+pub fn process_largest_accounts(
+    rpc_client: &RpcClient,
+    config: &CliConfig,
+    commitment_config: CommitmentConfig,
+    filter: Option<RpcLargestAccountsFilter>,
+) -> ProcessResult {
+    let accounts = rpc_client
+        .get_largest_accounts_with_config(RpcLargestAccountsConfig {
+            commitment: Some(commitment_config),
+            filter,
+        })?
+        .value;
+    let largest_accounts = CliAccountBalances { accounts };
+    Ok(config.output_format.formatted_string(&largest_accounts))
+}
+
+pub fn process_supply(
+    rpc_client: &RpcClient,
+    config: &CliConfig,
+    commitment_config: CommitmentConfig,
+    print_accounts: bool,
+) -> ProcessResult {
+    let supply_response = rpc_client.supply_with_commitment(commitment_config.clone())?;
+    let mut supply: CliSupply = supply_response.value.into();
+    supply.print_accounts = print_accounts;
+    Ok(config.output_format.formatted_string(&supply))
+}
+
 pub fn process_total_supply(
     rpc_client: &RpcClient,
     commitment_config: CommitmentConfig,
@@ -818,10 +906,7 @@ pub fn process_ping(
     timeout: &Duration,
     commitment_config: CommitmentConfig,
 ) -> ProcessResult {
-    let to = Keypair::new().pubkey();
-
     println_name_value("Source Account:", &config.signers[0].pubkey().to_string());
-    println_name_value("Destination Account:", &to.to_string());
     println!();
 
     let (signal_sender, signal_receiver) = std::sync::mpsc::channel();
@@ -830,27 +915,46 @@ pub fn process_ping(
     })
     .expect("Error setting Ctrl-C handler");
 
-    let mut last_blockhash = Hash::default();
     let mut submit_count = 0;
     let mut confirmed_count = 0;
     let mut confirmation_time: VecDeque<u64> = VecDeque::with_capacity(1024);
 
+    let (mut blockhash, mut fee_calculator) = rpc_client.get_recent_blockhash()?;
+    let mut blockhash_transaction_count = 0;
+    let mut blockhash_acquired = Instant::now();
     'mainloop: for seq in 0..count.unwrap_or(std::u64::MAX) {
-        let (recent_blockhash, fee_calculator) = rpc_client.get_new_blockhash(&last_blockhash)?;
-        last_blockhash = recent_blockhash;
+        let now = Instant::now();
+        if now.duration_since(blockhash_acquired).as_secs() > 60 {
+            // Fetch a new blockhash every minute
+            let (new_blockhash, new_fee_calculator) = rpc_client.get_new_blockhash(&blockhash)?;
+            blockhash = new_blockhash;
+            fee_calculator = new_fee_calculator;
+            blockhash_transaction_count = 0;
+            blockhash_acquired = Instant::now();
+        }
 
-        let ix = system_instruction::transfer(&config.signers[0].pubkey(), &to, lamports);
-        let message = Message::new(&[ix]);
-        let mut transaction = Transaction::new_unsigned(message);
-        transaction.try_sign(&config.signers, recent_blockhash)?;
-        check_account_for_fee(
+        let seed =
+            &format!("{}{}", blockhash_transaction_count, blockhash)[0..pubkey::MAX_SEED_LEN];
+        let to = Pubkey::create_with_seed(&config.signers[0].pubkey(), seed, &system_program::id())
+            .unwrap();
+        blockhash_transaction_count += 1;
+
+        let build_message = |lamports| {
+            let ix = system_instruction::transfer(&config.signers[0].pubkey(), &to, lamports);
+            Message::new(&[ix])
+        };
+        let (message, _) = resolve_spend_tx_and_check_account_balance(
             rpc_client,
-            &config.signers[0].pubkey(),
+            false,
+            SpendAmount::Some(lamports),
             &fee_calculator,
-            &transaction.message,
+            &config.signers[0].pubkey(),
+            build_message,
         )?;
+        let mut tx = Transaction::new_unsigned(message);
+        tx.try_sign(&config.signers, blockhash)?;
 
-        match rpc_client.send_transaction(&transaction) {
+        match rpc_client.send_transaction(&tx) {
             Ok(signature) => {
                 let transaction_sent = Instant::now();
                 loop {
@@ -1135,12 +1239,14 @@ pub fn process_show_validators(
         .current
         .iter()
         .chain(vote_accounts.delinquent.iter())
-        .fold(0, |acc, vote_account| acc + vote_account.activated_stake);
+        .map(|vote_account| vote_account.activated_stake)
+        .sum();
 
     let total_deliquent_stake = vote_accounts
         .delinquent
         .iter()
-        .fold(0, |acc, vote_account| acc + vote_account.activated_stake);
+        .map(|vote_account| vote_account.activated_stake)
+        .sum();
     let total_current_stake = total_active_stake - total_deliquent_stake;
 
     let mut current = vote_accounts.current;
@@ -1171,7 +1277,7 @@ pub fn process_transaction_history(
     rpc_client: &RpcClient,
     address: &Pubkey,
     end_slot: Option<Slot>, // None == use latest slot
-    slot_limit: u64,
+    slot_limit: Option<u64>,
 ) -> ProcessResult {
     let end_slot = {
         if let Some(end_slot) = end_slot {
@@ -1180,18 +1286,30 @@ pub fn process_transaction_history(
             rpc_client.get_slot_with_commitment(CommitmentConfig::max())?
         }
     };
-    let start_slot = end_slot.saturating_sub(slot_limit);
+    let mut start_slot = match slot_limit {
+        Some(slot_limit) => end_slot.saturating_sub(slot_limit),
+        None => rpc_client.minimum_ledger_slot()?,
+    };
 
     println!(
         "Transactions affecting {} within slots [{},{}]",
         address, start_slot, end_slot
     );
-    let signatures =
-        rpc_client.get_confirmed_signatures_for_address(address, start_slot, end_slot)?;
-    for signature in &signatures {
-        println!("{}", signature);
+
+    let mut transaction_count = 0;
+    while start_slot < end_slot {
+        let signatures = rpc_client.get_confirmed_signatures_for_address(
+            address,
+            start_slot,
+            (start_slot + MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE).min(end_slot),
+        )?;
+        for signature in &signatures {
+            println!("{}", signature);
+        }
+        transaction_count += signatures.len();
+        start_slot += MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE;
     }
-    Ok(format!("{} transactions found", signatures.len(),))
+    Ok(format!("{} transactions found", transaction_count))
 }
 
 #[cfg(test)]

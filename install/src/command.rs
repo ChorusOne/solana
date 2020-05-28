@@ -221,8 +221,7 @@ fn new_update_manifest(
         let mut transaction = Transaction::new_unsigned_instructions(&instructions);
         let signers = [from_keypair, update_manifest_keypair];
         transaction.sign(&signers, recent_blockhash);
-
-        rpc_client.send_and_confirm_transaction(&mut transaction, &[from_keypair])?;
+        rpc_client.send_and_confirm_transaction(&transaction)?;
     }
     Ok(())
 }
@@ -245,8 +244,8 @@ fn store_update_manifest(
     );
 
     let message = Message::new_with_payer(&[instruction], Some(&from_keypair.pubkey()));
-    let mut transaction = Transaction::new(&signers, message, recent_blockhash);
-    rpc_client.send_and_confirm_transaction(&mut transaction, &[from_keypair])?;
+    let transaction = Transaction::new(&signers, message, recent_blockhash);
+    rpc_client.send_and_confirm_transaction(&transaction)?;
     Ok(())
 }
 
@@ -665,7 +664,7 @@ pub fn deploy(
     let progress_bar = new_spinner_progress_bar();
     progress_bar.set_message(&format!("{}Checking cluster...", LOOKING_GLASS));
     let balance = rpc_client
-        .retry_get_balance(&from_keypair.pubkey(), 5)
+        .get_balance(&from_keypair.pubkey())
         .map_err(|err| {
             format!(
                 "Unable to get the account balance of {}: {}",
@@ -673,7 +672,7 @@ pub fn deploy(
             )
         })?;
     progress_bar.finish_and_clear();
-    if balance.unwrap_or(0) == 0 {
+    if balance == 0 {
         return Err(format!("{} account balance is empty", from_keypair_file));
     }
 

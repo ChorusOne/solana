@@ -173,7 +173,7 @@ impl CrdsGossip {
         timeouts: &HashMap<Pubkey, u64>,
         response: Vec<CrdsValue>,
         now: u64,
-    ) -> usize {
+    ) -> (usize, usize) {
         self.pull
             .process_pull_response(&mut self.crds, from, timeouts, response, now)
     }
@@ -245,7 +245,7 @@ mod test {
         let mut crds_gossip = CrdsGossip::default();
         crds_gossip.id = Pubkey::new(&[0; 32]);
         let id = crds_gossip.id;
-        let ci = ContactInfo::new_localhost(&Pubkey::new(&[1; 32]), 0);
+        let ci = ContactInfo::new_localhost(&Pubkey::new(&[1; 32]), &Pubkey::new(&[1; 32]), 0);
         let prune_pubkey = Pubkey::new(&[2; 32]);
         crds_gossip
             .crds

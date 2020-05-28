@@ -154,7 +154,7 @@ pub trait InvokeContext {
         &mut self,
         message: &Message,
         instruction: &CompiledInstruction,
-        signers: &[Pubkey],
         accounts: &[Rc<RefCell<Account>>],
     ) -> Result<(), InstructionError>;
+    fn get_caller(&self) -> Result<&Pubkey, InstructionError>;
 }

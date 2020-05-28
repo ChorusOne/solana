@@ -1,9 +1,9 @@
 use clap::{crate_description, crate_name, value_t, value_t_or_exit, App, Arg};
 use log::*;
 use rand::{thread_rng, Rng};
-use solana_core::contact_info::ContactInfo;
-use solana_core::gossip_service::discover;
-use solana_core::serve_repair::RepairProtocol;
+use solana_core::{
+    contact_info::ContactInfo, gossip_service::discover, serve_repair::RepairProtocol,
+};
 use solana_sdk::pubkey::Pubkey;
 use std::net::{SocketAddr, UdpSocket};
 use std::process::exit;
@@ -46,17 +46,17 @@ fn run_dos(
     match data_type.as_str() {
         "repair_highest" => {
             let slot = 100;
-            let req = RepairProtocol::WindowIndex(contact, slot, 0);
+            let req = RepairProtocol::WindowIndexWithNonce(contact, slot, 0, 0);
             data = bincode::serialize(&req).unwrap();
         }
         "repair_shred" => {
             let slot = 100;
-            let req = RepairProtocol::HighestWindowIndex(contact, slot, 0);
+            let req = RepairProtocol::HighestWindowIndexWithNonce(contact, slot, 0, 0);
             data = bincode::serialize(&req).unwrap();
         }
         "repair_orphan" => {
             let slot = 100;
-            let req = RepairProtocol::Orphan(contact, slot);
+            let req = RepairProtocol::OrphanWithNonce(contact, slot, 0);
             data = bincode::serialize(&req).unwrap();
         }
         "random" => {
@@ -94,7 +94,7 @@ fn main() {
     solana_logger::setup_with_default("solana=info");
     let matches = App::new(crate_name!())
         .about(crate_description!())
-        .version(solana_clap_utils::version!())
+        .version(solana_version::version!())
         .arg(
             Arg::with_name("entrypoint")
                 .long("entrypoint")
@@ -148,13 +148,14 @@ fn main() {
     let data_type = value_t_or_exit!(matches, "data_type", String);
 
     info!("Finding cluster entry: {:?}", entrypoint_addr);
-    let (nodes, _validators, _archivers) = discover(
+    let (nodes, _validators) = discover(
         Some(&entrypoint_addr),
         None,
         Some(60),
         None,
         Some(&entrypoint_addr),
         None,
+        0,
     )
     .unwrap_or_else(|err| {
         eprintln!("Failed to discover {} node: {:?}", entrypoint_addr, err);
@@ -173,8 +174,12 @@ pub mod test {
 
     #[test]
     fn test_dos() {
-        let nodes = [ContactInfo::new_localhost(&Pubkey::new_rand(), timestamp())];
-        let entrypoint_addr = nodes[0].gossip.clone();
+        let nodes = [ContactInfo::new_localhost(
+            &Pubkey::new_rand(),
+            &Pubkey::new_rand(),
+            timestamp(),
+        )];
+        let entrypoint_addr = nodes[0].gossip;
         run_dos(
             &nodes,
             1,
