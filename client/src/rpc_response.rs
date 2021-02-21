@@ -37,6 +37,14 @@ pub struct RpcBlockhashFeeCalculator {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct RpcFees {
+    pub blockhash: String,
+    pub fee_calculator: FeeCalculator,
+    pub last_valid_slot: Slot,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct RpcFeeCalculator {
     pub fee_calculator: FeeCalculator,
 }
@@ -93,7 +101,6 @@ impl RpcAccount {
             })?,
             executable: self.executable,
             rent_epoch: self.rent_epoch,
-            ..Account::default()
         })
     }
 }
@@ -108,26 +115,12 @@ pub struct RpcContactInfo {
     pub tpu: Option<SocketAddr>,
     /// JSON RPC port
     pub rpc: Option<SocketAddr>,
+    /// Software version
+    pub version: Option<String>,
 }
 
 /// Map of leader base58 identity pubkeys to the slot indices relative to the first epoch slot
 pub type RpcLeaderSchedule = HashMap<String, Vec<usize>>;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcEpochInfo {
-    /// The current epoch
-    pub epoch: Epoch,
-
-    /// The current slot, relative to the start of the current epoch
-    pub slot_index: u64,
-
-    /// The number of slots in this epoch
-    pub slots_in_epoch: u64,
-
-    /// The absolute current slot
-    pub absolute_slot: Slot,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case")]
@@ -198,4 +191,13 @@ pub struct RpcStorageTurn {
 pub struct RpcAccountBalance {
     pub address: String,
     pub lamports: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSupply {
+    pub total: u64,
+    pub circulating: u64,
+    pub non_circulating: u64,
+    pub non_circulating_accounts: Vec<String>,
 }

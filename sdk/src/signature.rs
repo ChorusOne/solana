@@ -3,6 +3,7 @@
 use crate::{pubkey::Pubkey, transaction::TransactionError};
 use generic_array::{typenum::U64, GenericArray};
 use hmac::Hmac;
+use itertools::Itertools;
 use rand::{rngs::OsRng, CryptoRng, RngCore};
 use std::{
     borrow::{Borrow, Cow},
@@ -155,6 +156,11 @@ impl std::fmt::Debug for dyn Signer {
     }
 }
 
+/// Remove duplicates signers while preserving order. O(n²)
+pub fn unique_signers(signers: Vec<&dyn Signer>) -> Vec<&dyn Signer> {
+    signers.into_iter().unique_by(|s| s.pubkey()).collect()
+}
+
 impl Signer for Keypair {
     /// Return the public key for the given keypair
     fn pubkey(&self) -> Pubkey {
@@ -220,7 +226,7 @@ pub enum SignerError {
     #[error("no device found")]
     NoDeviceFound,
 
-    #[error("device protocol error: {0}")]
+    #[error("{0}")]
     Protocol(String),
 
     #[error("{0}")]
@@ -396,7 +402,7 @@ mod tests {
         let out_dir = env::var("FARF_DIR").unwrap_or_else(|_| "farf".to_string());
         let keypair = Keypair::new();
 
-        format!("{}/tmp/{}-{}", out_dir, name, keypair.pubkey()).to_string()
+        format!("{}/tmp/{}-{}", out_dir, name, keypair.pubkey())
     }
 
     #[test]
@@ -552,5 +558,19 @@ mod tests {
         assert_eq!(keypair, presigner);
         let presigner2 = Presigner::new(&pubkey, &sig);
         assert_eq!(presigner, presigner2);
+    }
+
+    fn pubkeys(signers: &[&dyn Signer]) -> Vec<Pubkey> {
+        signers.into_iter().map(|x| x.pubkey()).collect()
+    }
+
+    #[test]
+    fn test_unique_signers() {
+        let alice = Keypair::new();
+        let bob = Keypair::new();
+        assert_eq!(
+            pubkeys(&unique_signers(vec![&alice, &bob, &alice])),
+            pubkeys(&[&alice, &bob])
+        );
     }
 }

@@ -12,6 +12,9 @@ use std::net::{IpAddr, SocketAddr};
 /// Structure representing a node on the network
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ContactInfo {
+    /// validator identity
+    pub validator_id: Pubkey,
+    /// gossip identity
     pub id: Pubkey,
     /// gossip address
     pub gossip: SocketAddr,
@@ -25,8 +28,8 @@ pub struct ContactInfo {
     pub tpu: SocketAddr,
     /// address to forward unprocessed transactions to
     pub tpu_forwards: SocketAddr,
-    /// storage data address
-    pub storage_addr: SocketAddr,
+    /// unused address
+    pub unused: SocketAddr,
     /// address to which to send JSON-RPC requests
     pub rpc: SocketAddr,
     /// websocket for JSON-RPC push notifications
@@ -88,6 +91,7 @@ macro_rules! socketaddr_any {
 impl Default for ContactInfo {
     fn default() -> Self {
         ContactInfo {
+            validator_id: Pubkey::default(),
             id: Pubkey::default(),
             gossip: socketaddr_any!(),
             tvu: socketaddr_any!(),
@@ -95,7 +99,7 @@ impl Default for ContactInfo {
             repair: socketaddr_any!(),
             tpu: socketaddr_any!(),
             tpu_forwards: socketaddr_any!(),
-            storage_addr: socketaddr_any!(),
+            unused: socketaddr_any!(),
             rpc: socketaddr_any!(),
             rpc_pubsub: socketaddr_any!(),
             serve_repair: socketaddr_any!(),
@@ -106,8 +110,9 @@ impl Default for ContactInfo {
 }
 
 impl ContactInfo {
-    pub fn new_localhost(id: &Pubkey, now: u64) -> Self {
+    pub fn new_localhost(validator_id: &Pubkey, id: &Pubkey, now: u64) -> Self {
         Self {
+            validator_id: *validator_id,
             id: *id,
             gossip: socketaddr!("127.0.0.1:1234"),
             tvu: socketaddr!("127.0.0.1:1235"),
@@ -115,7 +120,7 @@ impl ContactInfo {
             repair: socketaddr!("127.0.0.1:1237"),
             tpu: socketaddr!("127.0.0.1:1238"),
             tpu_forwards: socketaddr!("127.0.0.1:1239"),
-            storage_addr: socketaddr!("127.0.0.1:1240"),
+            unused: socketaddr!("127.0.0.1:1240"),
             rpc: socketaddr!("127.0.0.1:1241"),
             rpc_pubsub: socketaddr!("127.0.0.1:1242"),
             serve_repair: socketaddr!("127.0.0.1:1243"),
@@ -130,6 +135,7 @@ impl ContactInfo {
         let addr = socketaddr!("224.0.1.255:1000");
         assert!(addr.ip().is_multicast());
         Self {
+            validator_id: Pubkey::new_rand(),
             id: Pubkey::new_rand(),
             gossip: addr,
             tvu: addr,
@@ -137,7 +143,7 @@ impl ContactInfo {
             repair: addr,
             tpu: addr,
             tpu_forwards: addr,
-            storage_addr: addr,
+            unused: addr,
             rpc: addr,
             rpc_pubsub: addr,
             serve_repair: addr,
@@ -147,7 +153,11 @@ impl ContactInfo {
     }
 
     #[cfg(test)]
-    pub(crate) fn new_with_pubkey_socketaddr(pubkey: &Pubkey, bind_addr: &SocketAddr) -> Self {
+    pub(crate) fn new_with_pubkey_socketaddr(
+        validator_id: &Pubkey,
+        id: &Pubkey,
+        bind_addr: &SocketAddr,
+    ) -> Self {
         fn next_port(addr: &SocketAddr, nxt: u16) -> SocketAddr {
             let mut nxt_addr = *addr;
             nxt_addr.set_port(addr.port() + nxt);
@@ -164,14 +174,15 @@ impl ContactInfo {
         let rpc_pubsub = SocketAddr::new(bind_addr.ip(), rpc_port::DEFAULT_RPC_PUBSUB_PORT);
         let serve_repair = next_port(&bind_addr, 6);
         Self {
-            id: *pubkey,
+            validator_id: *validator_id,
+            id: *id,
             gossip,
             tvu,
             tvu_forwards,
             repair,
             tpu,
             tpu_forwards,
-            storage_addr: "0.0.0.0:0".parse().unwrap(),
+            unused: "0.0.0.0:0".parse().unwrap(),
             rpc,
             rpc_pubsub,
             serve_repair,
@@ -182,8 +193,9 @@ impl ContactInfo {
 
     #[cfg(test)]
     pub(crate) fn new_with_socketaddr(bind_addr: &SocketAddr) -> Self {
+        let validator_keypair = Keypair::new();
         let keypair = Keypair::new();
-        Self::new_with_pubkey_socketaddr(&keypair.pubkey(), bind_addr)
+        Self::new_with_pubkey_socketaddr(&validator_keypair.pubkey(), &keypair.pubkey(), bind_addr)
     }
 
     // Construct a ContactInfo that's only usable for gossip
@@ -228,7 +240,6 @@ mod tests {
 
     #[test]
     fn test_is_valid_address() {
-        assert!(cfg!(test));
         let bad_address_port = socketaddr!("127.0.0.1:0");
         assert!(!ContactInfo::is_valid_address(&bad_address_port));
         let bad_address_unspecified = socketaddr!(0, 1234);
@@ -249,7 +260,7 @@ mod tests {
         assert!(ci.rpc.ip().is_unspecified());
         assert!(ci.rpc_pubsub.ip().is_unspecified());
         assert!(ci.tpu.ip().is_unspecified());
-        assert!(ci.storage_addr.ip().is_unspecified());
+        assert!(ci.unused.ip().is_unspecified());
         assert!(ci.serve_repair.ip().is_unspecified());
     }
     #[test]
@@ -261,7 +272,7 @@ mod tests {
         assert!(ci.rpc.ip().is_multicast());
         assert!(ci.rpc_pubsub.ip().is_multicast());
         assert!(ci.tpu.ip().is_multicast());
-        assert!(ci.storage_addr.ip().is_multicast());
+        assert!(ci.unused.ip().is_multicast());
         assert!(ci.serve_repair.ip().is_multicast());
     }
     #[test]
@@ -274,7 +285,7 @@ mod tests {
         assert!(ci.rpc.ip().is_unspecified());
         assert!(ci.rpc_pubsub.ip().is_unspecified());
         assert!(ci.tpu.ip().is_unspecified());
-        assert!(ci.storage_addr.ip().is_unspecified());
+        assert!(ci.unused.ip().is_unspecified());
         assert!(ci.serve_repair.ip().is_unspecified());
     }
     #[test]
@@ -287,14 +298,16 @@ mod tests {
         assert_eq!(ci.tpu_forwards.port(), 13);
         assert_eq!(ci.rpc.port(), rpc_port::DEFAULT_RPC_PORT);
         assert_eq!(ci.rpc_pubsub.port(), rpc_port::DEFAULT_RPC_PUBSUB_PORT);
-        assert!(ci.storage_addr.ip().is_unspecified());
+        assert!(ci.unused.ip().is_unspecified());
         assert_eq!(ci.serve_repair.port(), 16);
     }
 
     #[test]
     fn replayed_data_new_with_socketaddr_with_pubkey() {
+        let validator_keypair = Keypair::new();
         let keypair = Keypair::new();
         let d1 = ContactInfo::new_with_pubkey_socketaddr(
+            &validator_keypair.pubkey(),
             &keypair.pubkey(),
             &socketaddr!("127.0.0.1:1234"),
         );

@@ -17,8 +17,7 @@ use crate::{
     rpc_subscriptions::RpcSubscriptions,
     shred_fetch_stage::ShredFetchStage,
     sigverify_shreds::ShredSigVerifier,
-    sigverify_stage::{DisabledSigVerifier, SigVerifyStage},
-    storage_stage::{StorageStage, StorageState},
+    sigverify_stage::SigVerifyStage,
 };
 use crossbeam_channel::unbounded;
 use solana_ledger::leader_schedule_cache::LeaderScheduleCache;
@@ -50,7 +49,6 @@ pub struct Tvu {
     replay_stage: ReplayStage,
     ledger_cleanup_service: Option<LedgerCleanupService>,
     accounts_background_service: AccountsBackgroundService,
-    storage_stage: StorageStage,
     accounts_hash_verifier: AccountsHashVerifier,
 }
 
@@ -64,7 +62,6 @@ pub struct Sockets {
 #[derive(Default)]
 pub struct TvuConfig {
     pub max_ledger_shreds: Option<u64>,
-    pub sigverify_disabled: bool,
     pub shred_version: u16,
     pub halt_on_trusted_validators_accounts_hash_mismatch: bool,
     pub trusted_validators: Option<HashSet<Pubkey>>,
@@ -82,12 +79,10 @@ impl Tvu {
     pub fn new(
         vote_account: &Pubkey,
         authorized_voter_keypairs: Vec<Arc<Keypair>>,
-        storage_keypair: &Arc<Keypair>,
         bank_forks: &Arc<RwLock<BankForks>>,
         cluster_info: &Arc<ClusterInfo>,
         sockets: Sockets,
         blockstore: Arc<Blockstore>,
-        storage_state: &StorageState,
         ledger_signal_receiver: Receiver<bool>,
         subscriptions: &Arc<RpcSubscriptions>,
         poh_recorder: &Arc<Mutex<PohRecorder>>,
@@ -103,7 +98,7 @@ impl Tvu {
         retransmit_slots_sender: RetransmitSlotsSender,
         tvu_config: TvuConfig,
     ) -> Self {
-        let keypair: Arc<Keypair> = cluster_info.keypair.clone();
+        let keypair: Arc<Keypair> = cluster_info.id_keypair.clone();
 
         let Sockets {
             repair: repair_socket,
@@ -128,19 +123,11 @@ impl Tvu {
         );
 
         let (verified_sender, verified_receiver) = unbounded();
-        let sigverify_stage = if !tvu_config.sigverify_disabled {
-            SigVerifyStage::new(
-                fetch_receiver,
-                verified_sender,
-                ShredSigVerifier::new(bank_forks.clone(), leader_schedule_cache.clone()),
-            )
-        } else {
-            SigVerifyStage::new(
-                fetch_receiver,
-                verified_sender,
-                DisabledSigVerifier::default(),
-            )
-        };
+        let sigverify_stage = SigVerifyStage::new(
+            fetch_receiver,
+            verified_sender,
+            ShredSigVerifier::new(bank_forks.clone(), leader_schedule_cache.clone()),
+        );
 
         let cluster_slots = Arc::new(ClusterSlots::default());
         let (duplicate_slots_reset_sender, duplicate_slots_reset_receiver) = unbounded();
@@ -192,12 +179,12 @@ impl Tvu {
             leader_schedule_cache: leader_schedule_cache.clone(),
             latest_root_senders: vec![ledger_cleanup_slot_sender],
             accounts_hash_sender: Some(accounts_hash_sender),
-            block_commitment_cache: block_commitment_cache.clone(),
+            block_commitment_cache,
             transaction_status_sender,
             rewards_recorder_sender,
         };
 
-        let (replay_stage, root_bank_receiver) = ReplayStage::new(
+        let replay_stage = ReplayStage::new(
             replay_stage_config,
             blockstore.clone(),
             bank_forks.clone(),
@@ -221,18 +208,6 @@ impl Tvu {
 
         let accounts_background_service = AccountsBackgroundService::new(bank_forks.clone(), &exit);
 
-        let storage_stage = StorageStage::new(
-            storage_state,
-            root_bank_receiver,
-            Some(blockstore),
-            &keypair,
-            storage_keypair,
-            &exit,
-            &bank_forks,
-            &cluster_info,
-            block_commitment_cache,
-        );
-
         Tvu {
             fetch_stage,
             sigverify_stage,
@@ -240,7 +215,6 @@ impl Tvu {
             replay_stage,
             ledger_cleanup_service,
             accounts_background_service,
-            storage_stage,
             accounts_hash_verifier,
         }
     }
@@ -249,7 +223,6 @@ impl Tvu {
         self.retransmit_stage.join()?;
         self.fetch_stage.join()?;
         self.sigverify_stage.join()?;
-        self.storage_stage.join()?;
         if self.ledger_cleanup_service.is_some() {
             self.ledger_cleanup_service.unwrap().join()?;
         }
@@ -271,13 +244,18 @@ pub mod tests {
     use solana_runtime::bank::Bank;
     use std::sync::atomic::Ordering;
 
+    #[ignore]
     #[test]
     #[serial]
     fn test_tvu_exit() {
         solana_logger::setup();
         let leader = Node::new_localhost();
+        let target1_id_keypair = Keypair::new();
         let target1_keypair = Keypair::new();
-        let target1 = Node::new_localhost_with_pubkey(&target1_keypair.pubkey());
+        let target1 = Node::new_localhost_with_pubkey(
+            &target1_id_keypair.pubkey(),
+            &target1_keypair.pubkey(),
+        );
 
         let starting_balance = 10_000;
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(starting_balance);
@@ -286,7 +264,7 @@ pub mod tests {
 
         //start cluster_info1
         let cluster_info1 = ClusterInfo::new_with_invalid_keypair(target1.info.clone());
-        cluster_info1.insert_info(leader.info.clone());
+        cluster_info1.insert_info(leader.info);
         let cref1 = Arc::new(cluster_info1);
 
         let (blockstore_path, _) = create_new_tmp_ledger!(&genesis_config);
@@ -298,7 +276,6 @@ pub mod tests {
         let (exit, poh_recorder, poh_service, _entry_receiver) =
             create_test_recorder(&bank, &blockstore, None);
         let vote_keypair = Keypair::new();
-        let storage_keypair = Arc::new(Keypair::new());
         let leader_schedule_cache = Arc::new(LeaderScheduleCache::new_from_bank(&bank));
         let block_commitment_cache = Arc::new(RwLock::new(
             BlockCommitmentCache::default_with_blockstore(blockstore.clone()),
@@ -308,7 +285,6 @@ pub mod tests {
         let tvu = Tvu::new(
             &vote_keypair.pubkey(),
             vec![Arc::new(vote_keypair)],
-            &storage_keypair,
             &bank_forks,
             &cref1,
             {
@@ -320,7 +296,6 @@ pub mod tests {
                 }
             },
             blockstore,
-            &StorageState::default(),
             l_receiver,
             &Arc::new(RpcSubscriptions::new(
                 &exit,

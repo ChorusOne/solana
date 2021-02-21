@@ -74,7 +74,7 @@ fn output_keypair(
         write_keypair(&keypair, &mut stdout)?;
     } else {
         write_keypair_file(&keypair, outfile)?;
-        eprintln!("Wrote {} keypair to {}", source, outfile);
+        println!("Wrote {} keypair to {}", source, outfile);
     }
     Ok(())
 }
@@ -208,7 +208,7 @@ fn grind_parse_args(
 fn main() -> Result<(), Box<dyn error::Error>> {
     let matches = App::new(crate_name!())
         .about(crate_description!())
-        .version(solana_clap_utils::version!())
+        .version(solana_version::version!())
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .arg({
             let arg = Arg::with_name("config_file")
@@ -434,7 +434,7 @@ fn do_main(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Error>> {
             let passphrase = if matches.is_present("no_passphrase") {
                 NO_PASSPHRASE.to_string()
             } else {
-                eprintln!("Generating a new keypair");
+                println!("Generating a new keypair");
                 prompt_passphrase(
                     "For added security, enter a passphrase (empty for no passphrase): ",
                 )?
@@ -451,7 +451,7 @@ fn do_main(matches: &ArgMatches<'_>) -> Result<(), Box<dyn error::Error>> {
             if !silent {
                 let phrase: &str = mnemonic.phrase();
                 let divider = String::from_utf8(vec![b'='; phrase.len()]).unwrap();
-                eprintln!(
+                println!(
                     "{}\npubkey: {}\n{}\nSave this seed phrase to recover your new keypair:\n{}\n{}",
                     &divider, keypair.pubkey(), &divider, phrase, &divider
                 );

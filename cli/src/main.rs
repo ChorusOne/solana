@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let matches = app(
         crate_name!(),
         crate_description!(),
-        solana_clap_utils::version!(),
+        solana_version::version!(),
     )
     .arg({
         let arg = Arg::with_name("config_file")
@@ -210,10 +210,11 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     .arg(
         Arg::with_name("output_format")
             .long("output")
+            .value_name("FORMAT")
             .global(true)
             .takes_value(true)
             .possible_values(&["json", "json-compact"])
-            .help("Return information in specified output format. Supports: json, json-compact"),
+            .help("Return information in specified output format"),
     )
     .arg(
         Arg::with_name(SKIP_SEED_PHRASE_VALIDATION_ARG.name)

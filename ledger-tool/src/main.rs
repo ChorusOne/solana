@@ -209,7 +209,8 @@ fn graph_forks(bank_forks: &BankForks, include_all_votes: bool) -> String {
         let total_stake = bank
             .vote_accounts()
             .iter()
-            .fold(0, |acc, (_, (stake, _))| acc + stake);
+            .map(|(_, (stake, _))| stake)
+            .sum();
         for (_, (stake, vote_account)) in bank.vote_accounts() {
             let vote_state = VoteState::from(&vote_account).unwrap_or_default();
             if let Some(last_vote) = vote_state.votes.iter().last() {
@@ -631,7 +632,7 @@ fn main() {
 
     let matches = App::new(crate_name!())
         .about(crate_description!())
-        .version(solana_clap_utils::version!())
+        .version(solana_version::version!())
         .arg(
             Arg::with_name("ledger_path")
                 .short("l")
@@ -779,16 +780,13 @@ fn main() {
             )
             .arg(&max_genesis_archive_unpacked_size_arg)
         ).subcommand(
-            SubCommand::with_name("prune")
-            .about("Prune the ledger from a yaml file containing a list of slots to prune.")
-            .arg(
-                Arg::with_name("slot_list")
-                    .long("slot-list")
-                    .value_name("FILENAME")
-                    .takes_value(true)
-                    .required(true)
-                    .help("The location of the YAML file with a list of rollback slot heights and hashes"),
-            )
+            SubCommand::with_name("capitalization")
+            .about("Print capitalization (aka, total suppy)")
+            .arg(&no_snapshot_arg)
+            .arg(&account_paths_arg)
+            .arg(&halt_at_slot_arg)
+            .arg(&hard_forks_arg)
+            .arg(&max_genesis_archive_unpacked_size_arg)
         ).subcommand(
             SubCommand::with_name("purge")
             .about("Delete a range of slots from the ledger.")
@@ -798,14 +796,14 @@ fn main() {
                     .value_name("SLOT")
                     .takes_value(true)
                     .required(true)
-                    .help("Start slot to purge from."),
+                    .help("Start slot to purge from (inclusive)"),
             )
             .arg(
                 Arg::with_name("end_slot")
                     .index(2)
                     .value_name("SLOT")
-                    .takes_value(true)
-                    .help("Optional ending slot to stop purging."),
+                    .required(true)
+                    .help("Ending slot to stop purging (inclusive)"),
             )
         )
         .subcommand(
@@ -1023,6 +1021,8 @@ fn main() {
 
                     println!("Creating a snapshot of slot {}", bank.slot());
                     bank.squash();
+                    bank.clean_accounts();
+                    bank.update_accounts_hash();
 
                     let temp_dir = tempfile::TempDir::new().unwrap_or_else(|err| {
                         eprintln!("Unable to create temporary directory: {}", err);
@@ -1112,49 +1112,81 @@ fn main() {
                 }
             }
         }
-        ("purge", Some(arg_matches)) => {
-            let start_slot = value_t_or_exit!(arg_matches, "start_slot", Slot);
-            let end_slot = value_t!(arg_matches, "end_slot", Slot);
-            let end_slot = end_slot.map_or(None, Some);
-            let blockstore = open_blockstore(&ledger_path);
-            blockstore.purge_slots(start_slot, end_slot);
-        }
-        ("prune", Some(arg_matches)) => {
-            if let Some(prune_file_path) = arg_matches.value_of("slot_list") {
-                let blockstore = open_blockstore(&ledger_path);
-                let prune_file = File::open(prune_file_path.to_string()).unwrap();
-                let slot_hashes: BTreeMap<u64, String> =
-                    serde_yaml::from_reader(prune_file).unwrap();
+        ("capitalization", Some(arg_matches)) => {
+            let dev_halt_at_slot = value_t!(arg_matches, "halt_at_slot", Slot).ok();
+            let process_options = ProcessOptions {
+                dev_halt_at_slot,
+                new_hard_forks: hardforks_of(arg_matches, "hard_forks"),
+                poh_verify: false,
+                ..ProcessOptions::default()
+            };
+            let genesis_config = open_genesis_config_by(&ledger_path, arg_matches);
+            match load_bank_forks(arg_matches, &ledger_path, &genesis_config, process_options) {
+                Ok((bank_forks, _leader_schedule_cache, _snapshot_hash)) => {
+                    let slot = bank_forks.working_bank().slot();
+                    let bank = bank_forks.get(slot).unwrap_or_else(|| {
+                        eprintln!("Error: Slot {} is not available", slot);
+                        exit(1);
+                    });
 
-                let iter =
-                    RootedSlotIterator::new(0, &blockstore).expect("Failed to get rooted slot");
+                    use solana_sdk::native_token::LAMPORTS_PER_SOL;
+                    use std::fmt::{Display, Formatter, Result};
+                    pub struct Sol(u64);
 
-                let potential_hashes: Vec<_> = iter
-                    .filter_map(|(slot, _meta)| {
-                        let blockhash = blockstore
-                            .get_slot_entries(slot, 0)
-                            .unwrap()
-                            .last()
-                            .unwrap()
-                            .hash
-                            .to_string();
+                    impl Display for Sol {
+                        fn fmt(&self, f: &mut Formatter) -> Result {
+                            write!(
+                                f,
+                                "{}.{:09} SOL",
+                                self.0 / LAMPORTS_PER_SOL,
+                                self.0 % LAMPORTS_PER_SOL
+                            )
+                        }
+                    }
 
-                        slot_hashes.get(&slot).and_then(|hash| {
-                            if *hash == blockhash {
-                                Some((slot, blockhash))
+                    let computed_capitalization: u64 = bank
+                        .get_program_accounts(None)
+                        .into_iter()
+                        .filter_map(|(_pubkey, account)| {
+                            if account.lamports == u64::max_value() {
+                                return None;
+                            }
+
+                            let is_specially_retained =
+                                solana_sdk::native_loader::check_id(&account.owner)
+                                    || solana_sdk::sysvar::check_id(&account.owner);
+
+                            if is_specially_retained {
+                                // specially retained accounts are ensured to exist by
+                                // alwaysing having a balance of 1 lamports, which is
+                                // outside the capitalization calculation.
+                                Some(account.lamports - 1)
                             } else {
-                                None
+                                Some(account.lamports)
                             }
                         })
-                    })
-                    .collect();
+                        .sum();
 
-                let (target_slot, target_hash) = potential_hashes
-                    .last()
-                    .expect("Failed to find a valid slot");
-                println!("Prune at slot {:?} hash {:?}", target_slot, target_hash);
-                blockstore.prune(*target_slot);
+                    if bank.capitalization() != computed_capitalization {
+                        panic!(
+                            "Capitalization mismatch!?: {} != {}",
+                            bank.capitalization(),
+                            computed_capitalization
+                        );
+                    }
+                    println!("Capitalization: {}", Sol(bank.capitalization()));
+                }
+                Err(err) => {
+                    eprintln!("Failed to load ledger: {:?}", err);
+                    exit(1);
+                }
             }
+        }
+        ("purge", Some(arg_matches)) => {
+            let start_slot = value_t_or_exit!(arg_matches, "start_slot", Slot);
+            let end_slot = value_t_or_exit!(arg_matches, "end_slot", Slot);
+            let blockstore = open_blockstore(&ledger_path);
+            blockstore.purge_slots(start_slot, end_slot);
         }
         ("list-roots", Some(arg_matches)) => {
             let blockstore = open_blockstore(&ledger_path);

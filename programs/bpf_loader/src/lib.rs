@@ -57,6 +57,7 @@ impl UserDefinedError for BPFError {}
 
 pub fn create_vm<'a>(
     prog: &'a [u8],
+    parameter_accounts: &'a [KeyedAccount<'a>],
     invoke_context: &'a mut dyn InvokeContext,
 ) -> Result<(EbpfVm<'a, BPFError>, MemoryRegion), EbpfError<BPFError>> {
     let mut vm = EbpfVm::new(None)?;
@@ -64,7 +65,7 @@ pub fn create_vm<'a>(
     vm.set_max_instruction_count(100_000)?;
     vm.set_elf(&prog)?;
 
-    let heap_region = syscalls::register_syscalls(&mut vm, invoke_context)?;
+    let heap_region = syscalls::register_syscalls(&mut vm, parameter_accounts, invoke_context)?;
 
     Ok((vm, heap_region))
 }
@@ -182,13 +183,14 @@ pub fn process_instruction(
         )?;
         {
             let program_account = program.try_account_ref_mut()?;
-            let (mut vm, heap_region) = match create_vm(&program_account.data, invoke_context) {
-                Ok(info) => info,
-                Err(e) => {
-                    warn!("Failed to create BPF VM: {}", e);
-                    return Err(BPFLoaderError::VirtualMachineCreationFailed.into());
-                }
-            };
+            let (mut vm, heap_region) =
+                match create_vm(&program_account.data, &parameter_accounts, invoke_context) {
+                    Ok(info) => info,
+                    Err(e) => {
+                        warn!("Failed to create BPF VM: {}", e);
+                        return Err(BPFLoaderError::VirtualMachineCreationFailed.into());
+                    }
+                };
 
             info!("Call BPF program {}", program.unsigned_key());
             match vm.execute_program(parameter_bytes.as_slice(), &[], &[heap_region]) {
@@ -255,13 +257,16 @@ pub fn process_instruction(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::Rng;
     use solana_sdk::{
         account::Account, instruction::CompiledInstruction, message::Message, rent::Rent,
     };
-    use std::{cell::RefCell, fs::File, io::Read, rc::Rc};
+    use std::{cell::RefCell, fs::File, io::Read, ops::Range, rc::Rc};
 
     #[derive(Debug, Default)]
-    pub struct MockInvokeContext {}
+    pub struct MockInvokeContext {
+        key: Pubkey,
+    }
     impl InvokeContext for MockInvokeContext {
         fn push(&mut self, _key: &Pubkey) -> Result<(), InstructionError> {
             Ok(())
@@ -271,10 +276,12 @@ mod tests {
             &mut self,
             _message: &Message,
             _instruction: &CompiledInstruction,
-            _signers: &[Pubkey],
             _accounts: &[Rc<RefCell<Account>>],
         ) -> Result<(), InstructionError> {
             Ok(())
+        }
+        fn get_caller(&self) -> Result<&Pubkey, InstructionError> {
+            Ok(&self.key)
         }
     }
 
@@ -313,7 +320,7 @@ mod tests {
             Err(InstructionError::NotEnoughAccountKeys),
             process_instruction(
                 &bpf_loader::id(),
-                &vec![],
+                &[],
                 &instruction_data,
                 &mut MockInvokeContext::default()
             )
@@ -379,7 +386,7 @@ mod tests {
             Err(InstructionError::NotEnoughAccountKeys),
             process_instruction(
                 &bpf_loader::id(),
-                &vec![],
+                &[],
                 &instruction_data,
                 &mut MockInvokeContext::default()
             )
@@ -447,8 +454,8 @@ mod tests {
             Err(InstructionError::NotEnoughAccountKeys),
             process_instruction(
                 &bpf_loader::id(),
-                &vec![],
-                &vec![],
+                &[],
+                &[],
                 &mut MockInvokeContext::default()
             )
         );
@@ -459,7 +466,7 @@ mod tests {
             process_instruction(
                 &bpf_loader::id(),
                 &keyed_accounts,
-                &vec![],
+                &[],
                 &mut MockInvokeContext::default()
             )
         );
@@ -471,7 +478,7 @@ mod tests {
             process_instruction(
                 &bpf_loader::id(),
                 &keyed_accounts,
-                &vec![],
+                &[],
                 &mut MockInvokeContext::default()
             )
         );
@@ -485,7 +492,7 @@ mod tests {
             process_instruction(
                 &bpf_loader::id(),
                 &keyed_accounts,
-                &vec![],
+                &[],
                 &mut MockInvokeContext::default()
             )
         );
@@ -501,9 +508,71 @@ mod tests {
             process_instruction(
                 &bpf_loader::id(),
                 &keyed_accounts,
-                &vec![],
+                &[],
                 &mut MockInvokeContext::default()
             )
+        );
+    }
+
+    /// fuzzing utility function
+    fn fuzz<F>(
+        bytes: &[u8],
+        outer_iters: usize,
+        inner_iters: usize,
+        offset: Range<usize>,
+        value: Range<u8>,
+        work: F,
+    ) where
+        F: Fn(&mut [u8]),
+    {
+        let mut rng = rand::thread_rng();
+        for _ in 0..outer_iters {
+            let mut mangled_bytes = bytes.to_vec();
+            for _ in 0..inner_iters {
+                let offset = rng.gen_range(offset.start, offset.end);
+                let value = rng.gen_range(value.start, value.end);
+                mangled_bytes[offset] = value;
+                work(&mut mangled_bytes);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fuzz() {
+        let program_id = Pubkey::new_rand();
+        let program_key = Pubkey::new_rand();
+
+        // Create program account
+        let mut file = File::open("test_elfs/noop.so").expect("file open failed");
+        let mut elf = Vec::new();
+        file.read_to_end(&mut elf).unwrap();
+
+        info!("mangle the whole file");
+        fuzz(
+            &elf,
+            1_000_000_000,
+            100,
+            0..elf.len(),
+            0..255,
+            |bytes: &mut [u8]| {
+                let program_account = Account::new_ref(1, 0, &program_id);
+                program_account.borrow_mut().data = bytes.to_vec();
+                program_account.borrow_mut().executable = true;
+
+                let parameter_account = Account::new_ref(1, 0, &program_id);
+                let keyed_accounts = vec![
+                    KeyedAccount::new(&program_key, false, &program_account),
+                    KeyedAccount::new(&program_key, false, &parameter_account),
+                ];
+
+                let _result = process_instruction(
+                    &bpf_loader::id(),
+                    &keyed_accounts,
+                    &[],
+                    &mut MockInvokeContext::default(),
+                );
+            },
         );
     }
 }

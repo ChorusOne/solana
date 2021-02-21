@@ -18,7 +18,6 @@ use crate::{
     serve_repair_service::ServeRepairService,
     sigverify,
     snapshot_packager_service::SnapshotPackagerService,
-    storage_stage::StorageState,
     tpu::Tpu,
     transaction_status_service::TransactionStatusService,
     tvu::{Sockets, Tvu, TvuConfig},
@@ -36,7 +35,7 @@ use solana_ledger::{
 use solana_metrics::datapoint_info;
 use solana_runtime::bank::Bank;
 use solana_sdk::{
-    clock::{Slot, DEFAULT_SLOTS_PER_TURN},
+    clock::Slot,
     epoch_schedule::MAX_LEADER_SCHEDULE_EPOCH_OFFSET,
     genesis_config::GenesisConfig,
     hash::Hash,
@@ -59,12 +58,10 @@ use std::{
 
 #[derive(Clone, Debug)]
 pub struct ValidatorConfig {
-    pub dev_sigverify_disabled: bool,
     pub dev_halt_at_slot: Option<Slot>,
     pub expected_genesis_hash: Option<Hash>,
     pub expected_shred_version: Option<u16>,
     pub voting_disabled: bool,
-    pub storage_slots_per_turn: u64,
     pub account_paths: Vec<PathBuf>,
     pub rpc_config: JsonRpcConfig,
     pub rpc_ports: Option<(u16, u16)>, // (API, PubSub)
@@ -87,12 +84,10 @@ pub struct ValidatorConfig {
 impl Default for ValidatorConfig {
     fn default() -> Self {
         Self {
-            dev_sigverify_disabled: false,
             dev_halt_at_slot: None,
             expected_genesis_hash: None,
             expected_shred_version: None,
             voting_disabled: false,
-            storage_slots_per_turn: DEFAULT_SLOTS_PER_TURN,
             max_ledger_shreds: None,
             account_paths: Vec::new(),
             rpc_config: JsonRpcConfig::default(),
@@ -151,19 +146,22 @@ impl Validator {
     #[allow(clippy::cognitive_complexity)]
     pub fn new(
         mut node: Node,
-        keypair: &Arc<Keypair>,
+        validator_keypair: &Arc<Keypair>,
+        node_keypair: &Arc<Keypair>,
         ledger_path: &Path,
         vote_account: &Pubkey,
         mut authorized_voter_keypairs: Vec<Arc<Keypair>>,
-        storage_keypair: &Arc<Keypair>,
         entrypoint_info_option: Option<&ContactInfo>,
         poh_verify: bool,
         config: &ValidatorConfig,
     ) -> Self {
-        let id = keypair.pubkey();
-        assert_eq!(id, node.info.id);
+        let validator_id = validator_keypair.pubkey();
+        let node_id = node_keypair.pubkey();
+        assert_eq!(validator_id, node.info.validator_id);
+        assert_eq!(node_id, node.info.id);
 
-        warn!("identity: {}", id);
+        warn!("identity: {}", validator_id);
+        warn!("node: {}", node_id);
         warn!("vote account: {}", vote_account);
 
         if config.voting_disabled {
@@ -228,13 +226,11 @@ impl Validator {
             }
         }
 
-        let cluster_info = Arc::new(ClusterInfo::new(node.info.clone(), keypair.clone()));
-
-        let storage_state = StorageState::new(
-            &bank.last_blockhash(),
-            config.storage_slots_per_turn,
-            bank.slots_per_segment(),
-        );
+        let cluster_info = Arc::new(ClusterInfo::new(
+            node.info.clone(),
+            validator_keypair.clone(),
+            node_keypair.clone(),
+        ));
 
         let blockstore = Arc::new(blockstore);
         let block_commitment_cache = Arc::new(RwLock::new(
@@ -266,7 +262,6 @@ impl Validator {
                     cluster_info.clone(),
                     genesis_config.hash(),
                     ledger_path,
-                    storage_state.clone(),
                     validator_exit.clone(),
                     config.trusted_validators.clone(),
                 ),
@@ -318,6 +313,13 @@ impl Validator {
         );
 
         if config.dev_halt_at_slot.is_some() {
+            // Simulate a confirmed root to avoid RPC errors with CommitmentmentConfig::max() and
+            // to ensure RPC endpoints like getConfirmedBlock, which require a confirmed root, work
+            block_commitment_cache
+                .write()
+                .unwrap()
+                .set_largest_confirmed_root(bank_forks.read().unwrap().root());
+
             // Park with the RPC service running, ready for inspection!
             warn!("Validator halted");
             std::thread::park();
@@ -329,14 +331,14 @@ impl Validator {
             bank.last_blockhash(),
             bank.slot(),
             leader_schedule_cache.next_leader_slot(
-                &id,
+                &validator_id,
                 bank.slot(),
                 &bank,
                 Some(&blockstore),
                 GRACE_TICKS_FACTOR * MAX_GRACE_SLOTS,
             ),
             bank.ticks_per_slot(),
-            &id,
+            &validator_id,
             &blockstore,
             blockstore.new_shreds_signals.first().cloned(),
             &leader_schedule_cache,
@@ -396,7 +398,6 @@ impl Validator {
         let tvu = Tvu::new(
             vote_account,
             authorized_voter_keypairs,
-            storage_keypair,
             &bank_forks,
             &cluster_info,
             Sockets {
@@ -425,7 +426,6 @@ impl Validator {
                     .collect(),
             },
             blockstore.clone(),
-            &storage_state,
             ledger_signal_receiver,
             &subscriptions,
             &poh_recorder,
@@ -441,7 +441,6 @@ impl Validator {
             retransmit_slots_sender,
             TvuConfig {
                 max_ledger_shreds: config.max_ledger_shreds,
-                sigverify_disabled: config.dev_sigverify_disabled,
                 halt_on_trusted_validators_accounts_hash_mismatch: config
                     .halt_on_trusted_validators_accounts_hash_mismatch,
                 shred_version: node.info.shred_version,
@@ -449,10 +448,6 @@ impl Validator {
                 accounts_hash_fault_injection_slots: config.accounts_hash_fault_injection_slots,
             },
         );
-
-        if config.dev_sigverify_disabled {
-            warn!("signature verification disabled");
-        }
 
         let tpu = Tpu::new(
             &cluster_info,
@@ -462,7 +457,7 @@ impl Validator {
             node.sockets.tpu,
             node.sockets.tpu_forwards,
             node.sockets.broadcast,
-            config.dev_sigverify_disabled,
+            &subscriptions,
             transaction_status_sender,
             &blockstore,
             &config.broadcast_stage_type,
@@ -472,9 +467,9 @@ impl Validator {
             bank_forks,
         );
 
-        datapoint_info!("validator-new", ("id", id.to_string(), String));
+        datapoint_info!("validator-new", ("id", validator_id.to_string(), String));
         Self {
-            id,
+            id: validator_id,
             gossip_service,
             serve_repair_service,
             rpc_service,
@@ -695,8 +690,10 @@ impl TestValidator {
             bootstrap_validator_lamports,
             mint_lamports,
         } = options;
+        let validator_keypair = Arc::new(Keypair::new());
         let node_keypair = Arc::new(Keypair::new());
-        let node = Node::new_localhost_with_pubkey(&node_keypair.pubkey());
+        let node =
+            Node::new_localhost_with_pubkey(&validator_keypair.pubkey(), &node_keypair.pubkey());
         let contact_info = node.info.clone();
 
         let GenesisConfigInfo {
@@ -705,7 +702,7 @@ impl TestValidator {
             voting_keypair,
         } = create_genesis_config_with_leader_ex(
             mint_lamports,
-            &contact_info.id,
+            &contact_info.validator_id,
             42,
             bootstrap_validator_lamports,
         );
@@ -723,18 +720,17 @@ impl TestValidator {
         let (ledger_path, blockhash) = create_new_tmp_ledger!(&genesis_config);
 
         let leader_voting_keypair = Arc::new(voting_keypair);
-        let storage_keypair = Arc::new(Keypair::new());
         let config = ValidatorConfig {
             rpc_ports: Some((node.info.rpc.port(), node.info.rpc_pubsub.port())),
             ..ValidatorConfig::default()
         };
         let node = Validator::new(
             node,
+            &validator_keypair,
             &node_keypair,
             &ledger_path,
             &leader_voting_keypair.pubkey(),
             vec![leader_voting_keypair.clone()],
-            &storage_keypair,
             None,
             true,
             &config,
@@ -871,17 +867,24 @@ mod tests {
     fn validator_exit() {
         solana_logger::setup();
         let leader_keypair = Keypair::new();
-        let leader_node = Node::new_localhost_with_pubkey(&leader_keypair.pubkey());
+        let leader_node_keypair = Keypair::new();
+        let leader_node = Node::new_localhost_with_pubkey(
+            &leader_keypair.pubkey(),
+            &leader_node_keypair.pubkey(),
+        );
 
         let validator_keypair = Keypair::new();
-        let validator_node = Node::new_localhost_with_pubkey(&validator_keypair.pubkey());
+        let validator_node_keypair = Keypair::new();
+        let validator_node = Node::new_localhost_with_pubkey(
+            &validator_keypair.pubkey(),
+            &validator_node_keypair.pubkey(),
+        );
         let genesis_config =
             create_genesis_config_with_leader(10_000, &leader_keypair.pubkey(), 1000)
                 .genesis_config;
         let (validator_ledger_path, _blockhash) = create_new_tmp_ledger!(&genesis_config);
 
         let voting_keypair = Arc::new(Keypair::new());
-        let storage_keypair = Arc::new(Keypair::new());
         let config = ValidatorConfig {
             rpc_ports: Some((
                 validator_node.info.rpc.port(),
@@ -892,10 +895,10 @@ mod tests {
         let validator = Validator::new(
             validator_node,
             &Arc::new(validator_keypair),
+            &Arc::new(validator_node_keypair),
             &validator_ledger_path,
             &voting_keypair.pubkey(),
             vec![voting_keypair.clone()],
-            &storage_keypair,
             Some(&leader_node.info),
             true,
             &config,
@@ -906,21 +909,26 @@ mod tests {
 
     #[test]
     fn validator_parallel_exit() {
+        let leader_id_keypair = Keypair::new();
         let leader_keypair = Keypair::new();
-        let leader_node = Node::new_localhost_with_pubkey(&leader_keypair.pubkey());
+        let leader_node =
+            Node::new_localhost_with_pubkey(&leader_id_keypair.pubkey(), &leader_keypair.pubkey());
 
         let mut ledger_paths = vec![];
         let mut validators: Vec<Validator> = (0..2)
             .map(|_| {
                 let validator_keypair = Keypair::new();
-                let validator_node = Node::new_localhost_with_pubkey(&validator_keypair.pubkey());
+                let validator_node_keypair = Keypair::new();
+                let validator_node = Node::new_localhost_with_pubkey(
+                    &validator_keypair.pubkey(),
+                    &validator_node_keypair.pubkey(),
+                );
                 let genesis_config =
                     create_genesis_config_with_leader(10_000, &leader_keypair.pubkey(), 1000)
                         .genesis_config;
                 let (validator_ledger_path, _blockhash) = create_new_tmp_ledger!(&genesis_config);
                 ledger_paths.push(validator_ledger_path.clone());
                 let vote_account_keypair = Arc::new(Keypair::new());
-                let storage_keypair = Arc::new(Keypair::new());
                 let config = ValidatorConfig {
                     rpc_ports: Some((
                         validator_node.info.rpc.port(),
@@ -931,10 +939,10 @@ mod tests {
                 Validator::new(
                     validator_node,
                     &Arc::new(validator_keypair),
+                    &Arc::new(validator_node_keypair),
                     &validator_ledger_path,
                     &vote_account_keypair.pubkey(),
                     vec![vote_account_keypair.clone()],
-                    &storage_keypair,
                     Some(&leader_node.info),
                     true,
                     &config,

@@ -27,6 +27,7 @@ To interact with a Solana node inside a JavaScript application, use the [solana-
 * [getEpochSchedule](jsonrpc-api.md#getepochschedule)
 * [getFeeCalculatorForBlockhash](jsonrpc-api.md#getfeecalculatorforblockhash)
 * [getFeeRateGovernor](jsonrpc-api.md#getfeerategovernor)
+* [getFees](jsonrpc-api.md#getfees)
 * [getFirstAvailableBlock](jsonrpc-api.md#getfirstavailableblock)
 * [getGenesisHash](jsonrpc-api.md#getgenesishash)
 * [getIdentity](jsonrpc-api.md#getidentity)
@@ -39,17 +40,14 @@ To interact with a Solana node inside a JavaScript application, use the [solana-
 * [getSignatureStatuses](jsonrpc-api.md#getsignaturestatuses)
 * [getSlot](jsonrpc-api.md#getslot)
 * [getSlotLeader](jsonrpc-api.md#getslotleader)
-* [getSlotsPerSegment](jsonrpc-api.md#getslotspersegment)
-* [getStoragePubkeysForSlot](jsonrpc-api.md#getstoragepubkeysforslot)
-* [getStorageTurn](jsonrpc-api.md#getstorageturn)
-* [getStorageTurnRate](jsonrpc-api.md#getstorageturnrate)
+* [getSupply](jsonrpc-api.md#getsupply)
 * [getTransactionCount](jsonrpc-api.md#gettransactioncount)
-* [getTotalSupply](jsonrpc-api.md#gettotalsupply)
 * [getVersion](jsonrpc-api.md#getversion)
 * [getVoteAccounts](jsonrpc-api.md#getvoteaccounts)
 * [minimumLedgerSlot](jsonrpc-api.md#minimumledgerslot)
 * [requestAirdrop](jsonrpc-api.md#requestairdrop)
 * [sendTransaction](jsonrpc-api.md#sendtransaction)
+* [simulateTransaction](jsonrpc-api.md#simulatetransaction)
 * [setLogFilter](jsonrpc-api.md#setlogfilter)
 * [validatorExit](jsonrpc-api.md#validatorexit)
 * [Subscription Websocket](jsonrpc-api.md#subscription-websocket)
@@ -98,7 +96,8 @@ Solana nodes choose which bank state to query based on a commitment requirement
 set by the client. Clients may specify either:
 * `{"commitment":"max"}` - the node will query the most recent bank confirmed by the cluster as having reached `MAX_LOCKOUT_HISTORY` confirmations
 * `{"commitment":"root"}` - the node will query the most recent bank having reached `MAX_LOCKOUT_HISTORY` confirmations on this node
-* `{"commitment":"recent"}` - the node will query its most recent bank state
+* `{"commitment":"single"}` - the node will query the most recent bank having reached 1 confirmation
+* `{"commitment":"recent"}` - the node will query its most recent bank
 
 The commitment parameter should be included as the last element in the `params` array:
 
@@ -259,7 +258,8 @@ The result field will be an array of JSON objects, each with the following sub f
 * `pubkey: <string>` - Node public key, as base-58 encoded string
 * `gossip: <string>` - Gossip network address for the node
 * `tpu: <string>` - TPU network address for the node
-* `rpc: <string>` - JSON RPC network address for the node, or `null` if the JSON RPC service is not enabled
+* `rpc: <string>|null` - JSON RPC network address for the node, or `null` if the JSON RPC service is not enabled
+* `version: <string>|null` - The software version of the node, or `null` if the version information is not available
 
 #### Example:
 
@@ -268,7 +268,7 @@ The result field will be an array of JSON objects, each with the following sub f
 curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0", "id":1, "method":"getClusterNodes"}' http://localhost:8899
 
 // Result
-{"jsonrpc":"2.0","result":[{"gossip":"10.239.6.48:8001","pubkey":"9QzsJf7LPLj8GkXbYT3LFDKqsj2hHG7TA3xinJHu8epQ","rpc":"10.239.6.48:8899","tpu":"10.239.6.48:8856"}],"id":1}
+{"jsonrpc":"2.0","result":[{"gossip":"10.239.6.48:8001","pubkey":"9QzsJf7LPLj8GkXbYT3LFDKqsj2hHG7TA3xinJHu8epQ","rpc":"10.239.6.48:8899","tpu":"10.239.6.48:8856"},"version":"1.0.0 c375ce1f"],"id":1}
 ```
 
 ### getConfirmedBlock
@@ -491,7 +491,8 @@ Returns the fee calculator associated with the query blockhash, or `null` if the
 
 #### Parameters:
 
-* `blockhash: <string>`, query blockhash as a Base58 encoded string
+* `<string>` - query blockhash as a Base58 encoded string
+* `<object>` - (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
 
 #### Results:
 
@@ -537,6 +538,34 @@ curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "m
 
 // Result
 {"jsonrpc":"2.0","result":{"context":{"slot":54},"value":{"feeRateGovernor":{"burnPercent":50,"maxLamportsPerSignature":100000,"minLamportsPerSignature":5000,"targetLamportsPerSignature":10000,"targetSignaturesPerSlot":20000}}},"id":1}
+```
+
+### getFees
+
+Returns a recent block hash from the ledger, a fee schedule that can be used to
+compute the cost of submitting a transaction using it, and the last slot in
+which the blockhash will be valid.
+
+#### Parameters:
+
+* `<object>` - (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
+
+#### Results:
+
+The result will be an RpcResponse JSON object with `value` set to a JSON object with the following fields:
+
+* `blockhash: <string>` - a Hash as base-58 encoded string
+* `feeCalculator: <object>` - FeeCalculator object, the fee schedule for this block hash
+* `lastValidSlot: <u64>` - last slot in which a blockhash will be valid
+
+#### Example:
+
+```bash
+// Request
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"getFees"}' http://localhost:8899
+
+// Result
+{"jsonrpc":"2.0","result":{"context":{"slot":1},"value":{"blockhash":"CSymwgTNX1j3E4qhKfJAUE41nBWEwXufoYryPbkde5RR","feeCalculator":{lamportsPerSignature":5000},"lastValidSlot":297}},"id":1}
 ```
 
 ### getFirstAvailableBlock
@@ -641,7 +670,9 @@ Returns the 20 largest accounts, by lamport balance
 
 #### Parameters:
 
-* `<object>` - (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
+* `<object>` - (optional) Configuration object containing the following optional fields:
+  * (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
+  * (optional) `filter: <string>` - filter results by account type; currently supported: `circulating|nonCirculating`
 
 #### Results:
 
@@ -764,7 +795,7 @@ An RpcResponse containing a JSON object consisting of a string blockhash and Fee
 curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"getRecentBlockhash"}' http://localhost:8899
 
 // Result
-{"jsonrpc":"2.0","result":{"context":{"slot":1},"value":{"blockhash":"CSymwgTNX1j3E4qhKfJAUE41nBWEwXufoYryPbkde5RR","feeCalculator":{"burnPercent":50,"lamportsPerSignature":5000,"maxLamportsPerSignature":100000,"minLamportsPerSignature":5000,"targetLamportsPerSignature":10000,"targetSignaturesPerSlot":20000}}},"id":1}
+{"jsonrpc":"2.0","result":{"context":{"slot":1},"value":{"blockhash":"CSymwgTNX1j3E4qhKfJAUE41nBWEwXufoYryPbkde5RR","feeCalculator":{"lamportsPerSignature":5000}}},"id":1}
 ```
 
 ### getSignatureStatuses
@@ -857,9 +888,9 @@ curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "m
 {"jsonrpc":"2.0","result":"ENvAW7JScgYq6o4zKZwewtkzzJgDzuJAFxYasvmEQdpS","id":1}
 ```
 
-### getSlotsPerSegment
+### getSupply
 
-Returns the current storage segment size in terms of slots
+Returns information about the current supply.
 
 #### Parameters:
 
@@ -867,81 +898,20 @@ Returns the current storage segment size in terms of slots
 
 #### Results:
 
-* `<u64>` - Number of slots in a storage segment
+The result will be an RpcResponse JSON object with `value` equal to a JSON object containing:
+
+* `total: <u64>` - Total supply in lamports
+* `circulating: <u64>` - Circulating supply in lamports
+* `nonCirculating: <u64>` - Non-circulating supply in lamports
+* `nonCirculatingAccounts: <array>` - an array of account addresses of non-circulating accounts, as strings
 
 #### Example:
 
 ```bash
 // Request
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"getSlotsPerSegment"}' http://localhost:8899
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0", "id":1, "method":"getSupply"}' http://localhost:8899
 // Result
-{"jsonrpc":"2.0","result":1024,"id":1}
-```
-
-### getStoragePubkeysForSlot
-
-Returns the storage Pubkeys for a particular slot
-
-#### Parameters:
-
-None
-
-#### Results:
-
-An array of Pubkeys, as base-58 encoded strings
-
-#### Example:
-
-```bash
-// Request
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"getStoragePubkeysForSlot","params":[1]}' http://localhost:8899
- // Result
-{"jsonrpc":"2.0","result":["GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC"],"id":1}
-```
-
-### getStorageTurn
-
-Returns the current storage turn's blockhash and slot
-
-#### Parameters:
-
-None
-
-#### Results:
-
-A JSON object consisting of
-
-* `blockhash: <string>` - a Hash as base-58 encoded string indicating the blockhash of the turn slot
-* `slot: <u64>` - the current storage turn slot
-
-#### Example:
-
-```bash
-// Request
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"getStorageTurn"}' http://localhost:8899
- // Result
-{"jsonrpc":"2.0","result":{"blockhash": "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC", "slot": 2048},"id":1}
-```
-
-### getStorageTurnRate
-
-Returns the current storage turn rate in terms of slots per turn
-
-#### Parameters:
-
-None
-
-#### Results:
-
-* `<u64>` - Number of slots in storage turn
-
-#### Example:
-
-```bash
-// Request
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"getStorageTurnRate"}' http://localhost:8899
- // Result
-{"jsonrpc":"2.0","result":1024,"id":1}
+{"jsonrpc":"2.0","result":{"context":{"slot":1114},"value":{"circulating":16000,"nonCirculating":1000000,"nonCirculatingAccounts":["FEy8pTbP5fEoqMV1GdTz83byuA8EKByqYat1PKDgVAq5","9huDUZfxoJ7wGMTffUE7vh1xePqef7gyrLJu9NApncqA","3mi1GmwEE3zo2jmfDuzvjSX9ovRXsDUKHvsntpkhuLJ9","BYxEJTDerkaRWBem3XgnVcdhppktBXa2HbkHPKj2Ui4Z],total:1016000}},"id":1}
 ```
 
 ### getTransactionCount
@@ -964,28 +934,6 @@ curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "m
 
 // Result
 {"jsonrpc":"2.0","result":268,"id":1}
-```
-
-### getTotalSupply
-
-Returns the current total supply in lamports
-
-#### Parameters:
-
-* `<object>` - (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
-
-#### Results:
-
-* `<u64>` - Total supply
-
-#### Example:
-
-```bash
-// Request
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"getTotalSupply"}' http://localhost:8899
-
-// Result
-{"jsonrpc":"2.0","result":10126,"id":1}
 ```
 
 ### getVersion
@@ -1104,10 +1052,34 @@ Creates new transaction
 
 ```bash
 // Request
-curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"sendTransaction", "params":["3gKEMTuxvm3DKEJc4UyiyoNz1sxwdVRW2pyDDXqaCvUjGApnsazGh2y4W92zuaSSdJhBbWLYAkZokBt4N5oW27R7zCVaLLpLxvATL2GgheEh9DmmDR1P9r1ZqirVXM2fF3z5cafmc4EtwWc1UErFdCWj1qYvy4bDGMLXRYLURxaKytEEqrxz6JXj8rUHhDpjTZeFxmC6iAW3hZr6cmaAzewQCQfiEv2HfydriwHDtN95u3Y1EF6SuXxcRqox2aTjGye2Ln9zFj4XbnAtjCmkZhR"]}' http://localhost:8899
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"sendTransaction", "params":["4hXTCkRzt9WyecNzV1XPgCDfGAZzQKNxLXgynz5QDuWWPSAZBZSHptvWRL3BjCvzUXRdKvHL2b7yGrRQcWyaqsaBCncVG7BFggS8w9snUts67BSh3EqKpXLUm5UMHfD7ZBe9GhARjbNQMLJ1QD3Spr6oMTBU6EhdB4RD8CP2xUxr2u3d6fos36PD98XS6oX8TQjLpsMwncs5DAMiD4nNnR8NBfyghGCWvCVifVwvA8B8TJxE1aiyiv2L429BCWfyzAme5sZW8rDb14NeCQHhZbtNqfXhcp2tAnaAT"]}' http://localhost:8899
 
 // Result
-{"jsonrpc":"2.0","result":"2EBVM6cB8vAAD93Ktr6Vd8p67XPbQzCJX47MpReuiCXJAtcjaxpvWpcg9Ege1Nr5Tk3a2GFrByT7WPBjdsTycY9b","id":1}
+{"jsonrpc":"2.0","result":"2id3YC2jK9G5Wo2phDx4gJVAew8DcY5NAojnVuao8rkxwPYPe8cSwE5GzhEgJA2y8fVjDEo6iR6ykBvDxrTQrtpb","id":1}
+```
+
+### simulateTransaction
+
+Simulate sending a transaction
+
+#### Parameters:
+
+* `<string>` - Transaction, as base-58 encoded string.  The transaction must have a valid blockhash, but is not required to be signed.
+* `<object>` - (optional) Configuration object containing the following field:
+  * `sigVerify: <bool>` - if true the transaction signatures will be verified (default: false)
+
+#### Results:
+
+An RpcResponse containing a TransactionStatus object
+
+#### Example:
+
+```bash
+// Request
+curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "method":"simulateTransaction", "params":["4hXTCkRzt9WyecNzV1XPgCDfGAZzQKNxLXgynz5QDuWWPSAZBZSHptvWRL3BjCvzUXRdKvHL2b7yGrRQcWyaqsaBCncVG7BFggS8w9snUts67BSh3EqKpXLUm5UMHfD7ZBe9GhARjbNQMLJ1QD3Spr6oMTBU6EhdB4RD8CP2xUxr2u3d6fos36PD98XS6oX8TQjLpsMwncs5DAMiD4nNnR8NBfyghGCWvCVifVwvA8B8TJxE1aiyiv2L429BCWfyzAme5sZW8rDb14NeCQHhZbtNqfXhcp2tAnaAT"]}' http://localhost:8899
+
+// Result
+{"jsonrpc":"2.0","result":{"context":{"slot":218},"value":{"confirmations":0,"err":null,"slot":218,"status":{"Ok":null}}},"id":1}
 ```
 
 ### setLogFilter
@@ -1156,25 +1128,11 @@ curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1, "m
 
 ### Subscription Websocket
 
-After connect to the RPC PubSub websocket at `ws://<ADDRESS>/`:
+After connecting to the RPC PubSub websocket at `ws://<ADDRESS>/`:
 
 * Submit subscription requests to the websocket using the methods below
 * Multiple subscriptions may be active at once
-* All subscriptions take an optional `confirmations` parameter, which defines
-
-  how many confirmed blocks the node should wait before sending a notification.
-
-  The greater the number, the more likely the notification is to represent
-
-  consensus across the cluster, and the less likely it is to be affected by
-
-  forking or rollbacks. If unspecified, the default value is 0; the node will
-
-  send a notification as soon as it witnesses the event. The maximum
-
-  `confirmations` wait length is the cluster's `MAX_LOCKOUT_HISTORY`, which
-
-  represents the economic finality of the chain.
+* Many subscriptions take the optional [`commitment` parameter](jsonrpc-api.md#configuring-state-commitment), defining how finalized a change should be to trigger a notification. For subscriptions, if commitment is unspecified, the default value is `"single"`.
 
 ### accountSubscribe
 
@@ -1183,9 +1141,7 @@ Subscribe to an account to receive notifications when the lamports or data for a
 #### Parameters:
 
 * `<string>` - account Pubkey, as base-58 encoded string
-* `<u64>` - optional, number of confirmed blocks to wait before notification.
-
-  Default: 0, Max: `MAX_LOCKOUT_HISTORY` \(greater integers rounded down\)
+* `<object>` - (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
 
 #### Results:
 
@@ -1197,7 +1153,7 @@ Subscribe to an account to receive notifications when the lamports or data for a
 // Request
 {"jsonrpc":"2.0", "id":1, "method":"accountSubscribe", "params":["CM78CPUeXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNH12"]}
 
-{"jsonrpc":"2.0", "id":1, "method":"accountSubscribe", "params":["CM78CPUeXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNH12", 15]}
+{"jsonrpc":"2.0", "id":1, "method":"accountSubscribe", "params":["CM78CPUeXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNH12", {"commitment": "single"}]}
 
 // Result
 {"jsonrpc": "2.0","result": 0,"id": 1}
@@ -1206,7 +1162,25 @@ Subscribe to an account to receive notifications when the lamports or data for a
 #### Notification Format:
 
 ```bash
-{"jsonrpc": "2.0","method": "accountNotification", "params": {"result": {"executable":false,"owner":"4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM","lamports":1,"data":"Joig2k8Ax4JPMpWhXRyc2jMa7Wejz4X1xqVi3i7QRkmVj1ChUgNc4VNpGUQePJGBAui3c6886peU9GEbjsyeANN8JGStprwLbLwcw5wpPjuQQb9mwrjVmoDQBjj3MzZKgeHn6wmnQ5k8DBFuoCYKWWsJfH2gv9FvCzrN6K1CRcQZzF","rentEpoch":28},"subscription":0}}
+{
+  "jsonrpc": "2.0",
+  "method": "accountNotification",
+  "params": {
+    "result": {
+      "context": {
+        "slot": 5199307
+      },
+      "value": {
+        "data": "9qRxMDwy1ntDhBBoiy4Na9uDLbRTSzUS989mpwz",
+        "executable": false,
+        "lamports": 33594,
+        "owner": "H9oaJujXETwkmjyweuqKPFtk2no4SumoU9A3hi3dC8U6",
+        "rentEpoch": 635
+      }
+    },
+    "subscription": 23784
+  }
+}
 ```
 
 ### accountUnsubscribe
@@ -1238,9 +1212,7 @@ Subscribe to a program to receive notifications when the lamports or data for a 
 #### Parameters:
 
 * `<string>` - program\_id Pubkey, as base-58 encoded string
-* `<u64>` - optional, number of confirmed blocks to wait before notification.
-
-  Default: 0, Max: `MAX_LOCKOUT_HISTORY` \(greater integers rounded down\)
+* `<object>` - (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
 
 #### Results:
 
@@ -1250,9 +1222,9 @@ Subscribe to a program to receive notifications when the lamports or data for a 
 
 ```bash
 // Request
-{"jsonrpc":"2.0", "id":1, "method":"programSubscribe", "params":["9gZbPtbtHrs6hEWgd6MbVY9VPFtS5Z8xKtnYwA2NynHV"]}
+{"jsonrpc":"2.0", "id":1, "method":"programSubscribe", "params":["7BwE8yitxiWkD8jVPFvPmV7rs2Znzi4NHzJGLu2dzpUq"]}
 
-{"jsonrpc":"2.0", "id":1, "method":"programSubscribe", "params":["9gZbPtbtHrs6hEWgd6MbVY9VPFtS5Z8xKtnYwA2NynHV", 15]}
+{"jsonrpc":"2.0", "id":1, "method":"programSubscribe", "params":["7BwE8yitxiWkD8jVPFvPmV7rs2Znzi4NHzJGLu2dzpUq", {"commitment": "single"}]}
 
 // Result
 {"jsonrpc": "2.0","result": 0,"id": 1}
@@ -1260,12 +1232,30 @@ Subscribe to a program to receive notifications when the lamports or data for a 
 
 #### Notification Format:
 
-* `<string>` - account Pubkey, as base-58 encoded string
-* `<object>` - account info JSON object \(see [getAccountInfo](jsonrpc-api.md#getaccountinfo) for field details\)
-
-  ```bash
-  {"jsonrpc":"2.0","method":"programNotification","params":{{"result":["8Rshv2oMkPu5E4opXTRyuyBeZBqQ4S477VG26wUTFxUM",{"executable":false,"lamports":1,"owner":"9gZbPtbtHrs6hEWgd6MbVY9VPFtS5Z8xKtnYwA2NynHV","data":"4SZWhnbSt3njU4QHVgPrWeekz1BudU4ttmdr9ezmrL4X6XeLeL83xVAo6ZdxwU3oXgHNeF2q6tWZbnVnBXmvNyeLVEGt8ZQ4ZmgjHfVNCEwBtzh2aDrHgQSjBFLYAdmM3uwBhcm1EyHJLeUiFqpsoAUhn6Vphwrpf44dWRAGsAJZbzvVrUW9bfucpR7xudHHg2MxQ2CdqsfS3TfWUJY3vaf2A4AUNzfAmNPHBGi99nU2hYubGSVSPcpVPpdRWQkydgqasBmTosd","rentEpoch":28}],"subscription":0}}
-  ```
+```bash
+{
+  "jsonrpc": "2.0",
+  "method": "programNotification",
+  "params": {
+    "result": {
+      "context": {
+        "slot": 5208469
+      },
+      "value": {
+        "pubkey": "H4vnBqifaSACnKa7acsxstsY1iV1bvJNxsCY7enrd1hq"
+        "account": {
+          "data": "9qRxMDwy1ntDhBBoiy4Na9uDLbRTSzUS989m",
+          "executable": false,
+          "lamports": 33594,
+          "owner": "7BwE8yitxiWkD8jVPFvPmV7rs2Znzi4NHzJGLu2dzpUq",
+          "rentEpoch": 636
+        },
+      }
+    },
+    "subscription": 24040
+  }
+}
+```
 
 ### programUnsubscribe
 
@@ -1296,7 +1286,7 @@ Subscribe to a transaction signature to receive notification when the transactio
 #### Parameters:
 
 * `<string>` - Transaction Signature, as base-58 encoded string
-* `<integer>` - optional, number of confirmed blocks to wait before notification.
+* `<object>` - (optional) [Commitment](jsonrpc-api.md#configuring-state-commitment)
 
   Default: 0, Max: `MAX_LOCKOUT_HISTORY` \(greater integers rounded down\)
 
@@ -1310,7 +1300,7 @@ Subscribe to a transaction signature to receive notification when the transactio
 // Request
 {"jsonrpc":"2.0", "id":1, "method":"signatureSubscribe", "params":["2EBVM6cB8vAAD93Ktr6Vd8p67XPbQzCJX47MpReuiCXJAtcjaxpvWpcg9Ege1Nr5Tk3a2GFrByT7WPBjdsTycY9b"]}
 
-{"jsonrpc":"2.0", "id":1, "method":"signatureSubscribe", "params":["2EBVM6cB8vAAD93Ktr6Vd8p67XPbQzCJX47MpReuiCXJAtcjaxpvWpcg9Ege1Nr5Tk3a2GFrByT7WPBjdsTycY9b", 15]}
+{"jsonrpc":"2.0", "id":1, "method":"signatureSubscribe", "params":["2EBVM6cB8vAAD93Ktr6Vd8p67XPbQzCJX47MpReuiCXJAtcjaxpvWpcg9Ege1Nr5Tk3a2GFrByT7WPBjdsTycY9b", {"commitment": "max"}]}
 
 // Result
 {"jsonrpc": "2.0","result": 0,"id": 1}
@@ -1319,7 +1309,21 @@ Subscribe to a transaction signature to receive notification when the transactio
 #### Notification Format:
 
 ```bash
-{"jsonrpc": "2.0","method": "signatureNotification", "params": {"result": {"err": null}, "subscription":0}}
+{
+  "jsonrpc": "2.0",
+  "method": "signatureNotification",
+  "params": {
+    "result": {
+      "context": {
+        "slot": 5207624
+      },
+      "value": {
+        "err": null
+      }
+    },
+    "subscription": 24006
+  }
+}
 ```
 
 ### signatureUnsubscribe
@@ -1369,7 +1373,18 @@ None
 #### Notification Format:
 
 ```bash
-{"jsonrpc": "2.0","method": "slotNotification", "params": {"result":{"parent":75,"root":44,"slot":76},"subscription":0}}
+{
+  "jsonrpc": "2.0",
+  "method": "slotNotification",
+  "params": {
+    "result": {
+      "parent": 75,
+      "root": 44,
+      "slot": 76
+    },
+    "subscription": 0
+  }
+}
 ```
 
 ### slotUnsubscribe
@@ -1421,7 +1436,14 @@ None
 The result is the latest root slot number.
 
 ```bash
-{"jsonrpc": "2.0","method": "rootNotification", "params": {"result":42,"subscription":0}}
+{
+  "jsonrpc": "2.0",
+  "method": "rootNotification",
+  "params": {
+    "result": 42,
+    "subscription": 0
+  }
+}
 ```
 
 ### rootUnsubscribe
@@ -1441,6 +1463,71 @@ Unsubscribe from root notifications
 ```bash
 // Request
 {"jsonrpc":"2.0", "id":1, "method":"rootUnsubscribe", "params":[0]}
+
+// Result
+{"jsonrpc": "2.0","result": true,"id": 1}
+```
+
+### voteSubscribe
+
+Subscribe to receive notification anytime a new vote is observed in gossip.
+These votes are pre-consensus therefore there is no guarantee these votes will
+enter the ledger.
+
+#### Parameters:
+
+None
+
+#### Results:
+
+* `integer` - subscription id \(needed to unsubscribe\)
+
+#### Example:
+
+```bash
+// Request
+{"jsonrpc":"2.0", "id":1, "method":"voteSubscribe"}
+
+// Result
+{"jsonrpc": "2.0","result": 0,"id": 1}
+```
+
+#### Notification Format:
+
+The result is the latest vote, containing its hash, a list of voted slots, and an optional timestamp.
+
+```bash
+{
+  "jsonrpc": "2.0",
+  "method": "voteNotification",
+  "params": {
+    "result": {
+      "hash": "8Rshv2oMkPu5E4opXTRyuyBeZBqQ4S477VG26wUTFxUM",
+      "slots": [1, 2],
+      "timestamp": null
+    },
+    "subscription": 0
+  }
+}
+```
+
+### voteUnsubscribe
+
+Unsubscribe from vote notifications
+
+#### Parameters:
+
+* `<integer>` - subscription id to cancel
+
+#### Results:
+
+* `<bool>` - unsubscribe success message
+
+#### Example:
+
+```bash
+// Request
+{"jsonrpc":"2.0", "id":1, "method":"voteUnsubscribe", "params":[0]}
 
 // Result
 {"jsonrpc": "2.0","result": true,"id": 1}

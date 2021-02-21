@@ -6,14 +6,14 @@ use solana_rbpf::{
     memory_region::{translate_addr, MemoryRegion},
     EbpfVm,
 };
-use solana_runtime::message_processor::MessageProcessor;
+use solana_runtime::{builtin_programs::get_builtin_programs, message_processor::MessageProcessor};
 use solana_sdk::{
     account::Account,
+    account::KeyedAccount,
     account_info::AccountInfo,
     bpf_loader,
     entrypoint::SUCCESS,
     entrypoint_native::InvokeContext,
-    hash::Hash,
     instruction::{AccountMeta, Instruction, InstructionError},
     message::Message,
     program_error::ProgramError,
@@ -49,6 +49,8 @@ pub enum SyscallError {
     ProgramNotSupported,
     #[error("{0}")]
     InstructionError(InstructionError),
+    #[error("Cross-program invocation with unauthorized signer or writable account")]
+    PrivilegeEscalation,
 }
 impl From<SyscallError> for EbpfError<BPFError> {
     fn from(error: SyscallError) -> Self {
@@ -70,6 +72,7 @@ const DEFAULT_HEAP_SIZE: usize = 32 * 1024;
 
 pub fn register_syscalls<'a>(
     vm: &mut EbpfVm<'a, BPFError>,
+    callers_keyed_accounts: &'a [KeyedAccount<'a>],
     invoke_context: &'a mut dyn InvokeContext,
 ) -> Result<MemoryRegion, EbpfError<BPFError>> {
     // Syscall function common across languages
@@ -84,12 +87,14 @@ pub fn register_syscalls<'a>(
         vm.register_syscall_with_context_ex(
             "sol_invoke_signed_c",
             Box::new(SyscallProcessSolInstructionC {
+                callers_keyed_accounts,
                 invoke_context: invoke_context.clone(),
             }),
         )?;
         vm.register_syscall_with_context_ex(
             "sol_invoke_signed_rust",
             Box::new(SyscallProcessInstructionRust {
+                callers_keyed_accounts,
                 invoke_context: invoke_context.clone(),
             }),
         )?;
@@ -302,6 +307,7 @@ pub type TranslatedAccounts<'a> = (Vec<Rc<RefCell<Account>>>, Vec<(&'a mut u64, 
 /// Implemented by language specific data structure translators
 trait SyscallProcessInstruction<'a> {
     fn get_context_mut(&self) -> Result<RefMut<&'a mut dyn InvokeContext>, EbpfError<BPFError>>;
+    fn get_callers_keyed_accounts(&self) -> &'a [KeyedAccount<'a>];
     fn translate_instruction(
         &self,
         addr: u64,
@@ -326,6 +332,7 @@ trait SyscallProcessInstruction<'a> {
 
 /// Cross-program invocation called from Rust
 pub struct SyscallProcessInstructionRust<'a> {
+    callers_keyed_accounts: &'a [KeyedAccount<'a>],
     invoke_context: Rc<RefCell<&'a mut dyn InvokeContext>>,
 }
 impl<'a> SyscallProcessInstruction<'a> for SyscallProcessInstructionRust<'a> {
@@ -333,6 +340,9 @@ impl<'a> SyscallProcessInstruction<'a> for SyscallProcessInstructionRust<'a> {
         self.invoke_context
             .try_borrow_mut()
             .map_err(|_| SyscallError::InvokeContextBorrowFailed.into())
+    }
+    fn get_callers_keyed_accounts(&self) -> &'a [KeyedAccount<'a>] {
+        self.callers_keyed_accounts
     }
     fn translate_instruction(
         &self,
@@ -399,7 +409,6 @@ impl<'a> SyscallProcessInstruction<'a> for SyscallProcessInstructionRust<'a> {
                         executable: account_info.executable,
                         owner: *owner,
                         rent_epoch: account_info.rent_epoch,
-                        hash: Hash::default(),
                     })));
                     refs.push((lamports_ref, data));
                     continue 'root;
@@ -521,6 +530,7 @@ struct SolSignerSeedsC {
 
 /// Cross-program invocation called from C
 pub struct SyscallProcessSolInstructionC<'a> {
+    callers_keyed_accounts: &'a [KeyedAccount<'a>],
     invoke_context: Rc<RefCell<&'a mut dyn InvokeContext>>,
 }
 impl<'a> SyscallProcessInstruction<'a> for SyscallProcessSolInstructionC<'a> {
@@ -529,7 +539,9 @@ impl<'a> SyscallProcessInstruction<'a> for SyscallProcessSolInstructionC<'a> {
             .try_borrow_mut()
             .map_err(|_| SyscallError::InvokeContextBorrowFailed.into())
     }
-
+    fn get_callers_keyed_accounts(&self) -> &'a [KeyedAccount<'a>] {
+        self.callers_keyed_accounts
+    }
     fn translate_instruction(
         &self,
         addr: u64,
@@ -599,7 +611,6 @@ impl<'a> SyscallProcessInstruction<'a> for SyscallProcessSolInstructionC<'a> {
                         executable: account_info.executable,
                         owner: *owner,
                         rent_epoch: account_info.rent_epoch,
-                        hash: Hash::default(),
                     })));
                     refs.push((lamports_ref, data));
                     continue 'root;
@@ -676,6 +687,44 @@ impl<'a> SyscallObject<BPFError> for SyscallProcessSolInstructionC<'a> {
     }
 }
 
+fn verify_instruction<'a>(
+    syscall: &dyn SyscallProcessInstruction<'a>,
+    instruction: &Instruction,
+    signers: &[Pubkey],
+) -> Result<(), EbpfError<BPFError>> {
+    let callers_keyed_accounts = syscall.get_callers_keyed_accounts();
+
+    // Check for privilege escalation
+    for account in instruction.accounts.iter() {
+        let keyed_account = callers_keyed_accounts
+            .iter()
+            .find_map(|keyed_account| {
+                if &account.pubkey == keyed_account.unsigned_key() {
+                    Some(keyed_account)
+                } else {
+                    None
+                }
+            })
+            .ok_or(SyscallError::InstructionError(
+                InstructionError::MissingAccount,
+            ))?;
+        // Readonly account cannot become writable
+        if account.is_writable && !keyed_account.is_writable() {
+            return Err(SyscallError::PrivilegeEscalation.into());
+        }
+
+        if account.is_signer && // If message indicates account is signed
+        !( // one of the following needs to be true:
+            keyed_account.signer_key().is_some() // Signed in the parent instruction
+            || signers.contains(&account.pubkey) // Signed by the program
+        ) {
+            return Err(SyscallError::PrivilegeEscalation.into());
+        }
+    }
+
+    Ok(())
+}
+
 /// Call process instruction, common to both Rust and C
 fn call<'a>(
     syscall: &mut dyn SyscallProcessInstruction<'a>,
@@ -692,9 +741,19 @@ fn call<'a>(
     // Translate data passed from the VM
 
     let instruction = syscall.translate_instruction(instruction_addr, ro_regions)?;
-    let message = Message::new(&[instruction]);
-    let program_id_index = message.instructions[0].program_id_index as usize;
-    let program_id = message.account_keys[program_id_index];
+    let caller_program_id = invoke_context
+        .get_caller()
+        .map_err(SyscallError::InstructionError)?;
+    let signers = syscall.translate_signers(
+        caller_program_id,
+        signers_seeds_addr,
+        signers_seeds_len as usize,
+        ro_regions,
+    )?;
+    verify_instruction(syscall, &instruction, &signers)?;
+    let message = Message::new_with_payer(&[instruction], None);
+    let callee_program_id_index = message.instructions[0].program_id_index as usize;
+    let callee_program_id = message.account_keys[callee_program_id_index];
     let (accounts, refs) = syscall.translate_accounts(
         &message,
         account_infos_addr,
@@ -702,29 +761,23 @@ fn call<'a>(
         ro_regions,
         rw_regions,
     )?;
-    let signers = syscall.translate_signers(
-        &program_id,
-        signers_seeds_addr,
-        signers_seeds_len as usize,
-        ro_regions,
-    )?;
 
     // Process instruction
 
-    let program_account = (*accounts[program_id_index]).clone();
-    if program_account.borrow().owner != bpf_loader::id() {
-        // Only BPF programs supported for now
-        return Err(SyscallError::ProgramNotSupported.into());
+    let program_account = (*accounts[callee_program_id_index]).clone();
+    let executable_accounts = vec![(callee_program_id, program_account)];
+    let mut message_processor = MessageProcessor::default();
+    let builtin_programs = get_builtin_programs();
+    for program in builtin_programs.iter() {
+        message_processor.add_program(program.id, program.process_instruction);
     }
-    let executable_accounts = vec![(program_id, program_account)];
+    message_processor.add_loader(bpf_loader::id(), crate::process_instruction);
 
     #[allow(clippy::deref_addrof)]
-    match MessageProcessor::process_cross_program_instruction(
+    match message_processor.process_cross_program_instruction(
         &message,
         &executable_accounts,
         &accounts,
-        &signers,
-        crate::process_instruction,
         *(&mut *invoke_context),
     ) {
         Ok(()) => (),
@@ -775,9 +828,10 @@ mod tests {
             (true, START + LENGTH / 2, LENGTH / 2, addr + LENGTH / 2),
         ];
         for (ok, start, length, value) in cases {
-            match ok {
-                true => assert_eq!(translate!(start, length, &regions).unwrap(), value),
-                false => assert!(translate!(start, length, &regions).is_err()),
+            if ok {
+                assert_eq!(translate!(start, length, &regions).unwrap(), value)
+            } else {
+                assert!(translate!(start, length, &regions).is_err())
             }
         }
     }

@@ -69,7 +69,7 @@ impl BroadcastStageType {
         blockstore: &Arc<Blockstore>,
         shred_version: u16,
     ) -> BroadcastStage {
-        let keypair = cluster_info.keypair.clone();
+        let keypair = cluster_info.id_keypair.clone();
         match self {
             BroadcastStageType::Standard => BroadcastStage::new(
                 sock,
@@ -453,6 +453,7 @@ pub mod test {
         path::Path, sync::atomic::AtomicBool, sync::mpsc::channel, sync::Arc, thread::sleep,
     };
 
+    #[allow(clippy::implicit_hasher)]
     pub fn make_transmit_shreds(
         slot: Slot,
         num: u64,
@@ -463,7 +464,7 @@ pub mod test {
         Vec<TransmitShreds>,
         Vec<TransmitShreds>,
     ) {
-        let num_entries = max_ticks_per_n_shreds(num);
+        let num_entries = max_ticks_per_n_shreds(num, None);
         let (data_shreds, _) = make_slot_entries(slot, 0, num_entries);
         let keypair = Arc::new(Keypair::new());
         let shredder = Shredder::new(slot, 0, RECOMMENDED_FEC_RATE, keypair, 0, 0)
@@ -553,7 +554,7 @@ pub mod test {
             .send(vec![(updated_slot, bank0.clone())].into_iter().collect())
             .unwrap();
         retransmit_slots_sender
-            .send(vec![(updated_slot, bank0.clone())].into_iter().collect())
+            .send(vec![(updated_slot, bank0)].into_iter().collect())
             .unwrap();
         BroadcastStage::check_retransmit_signals(
             &blockstore,
@@ -578,6 +579,7 @@ pub mod test {
     }
 
     fn setup_dummy_broadcast_service(
+        leader_id_pubkey: &Pubkey,
         leader_pubkey: &Pubkey,
         ledger_path: &Path,
         entry_receiver: Receiver<WorkingBankEntry>,
@@ -587,11 +589,13 @@ pub mod test {
         let blockstore = Arc::new(Blockstore::open(ledger_path).unwrap());
 
         // Make the leader node and scheduler
-        let leader_info = Node::new_localhost_with_pubkey(leader_pubkey);
+        let leader_info = Node::new_localhost_with_pubkey(leader_id_pubkey, leader_pubkey);
 
         // Make a node to broadcast to
+        let buddy_id_keypair = Keypair::new();
         let buddy_keypair = Keypair::new();
-        let broadcast_buddy = Node::new_localhost_with_pubkey(&buddy_keypair.pubkey());
+        let broadcast_buddy =
+            Node::new_localhost_with_pubkey(&buddy_id_keypair.pubkey(), &buddy_keypair.pubkey());
 
         // Fill the cluster_info with the buddy's info
         let cluster_info = ClusterInfo::new_with_invalid_keypair(leader_info.info.clone());
@@ -629,11 +633,13 @@ pub mod test {
 
         {
             // Create the leader scheduler
+            let leader_validator_keypair = Keypair::new();
             let leader_keypair = Keypair::new();
 
             let (entry_sender, entry_receiver) = channel();
             let (retransmit_slots_sender, retransmit_slots_receiver) = unbounded();
             let broadcast_service = setup_dummy_broadcast_service(
+                &leader_validator_keypair.pubkey(),
                 &leader_keypair.pubkey(),
                 &ledger_path,
                 entry_receiver,

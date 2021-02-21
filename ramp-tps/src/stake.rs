@@ -1,8 +1,9 @@
-use crate::{notifier, utils};
+use crate::utils;
 use log::*;
-use solana_client::{rpc_client::RpcClient, rpc_response::RpcEpochInfo};
+use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     clock::Epoch,
+    epoch_info::EpochInfo,
     genesis_config::GenesisConfig,
     stake_history::StakeHistoryEntry,
     sysvar::{
@@ -60,15 +61,15 @@ fn stake_history_entry(epoch: Epoch, rpc_client: &RpcClient) -> Option<StakeHist
 /// Wait until stake warms up and return the current epoch
 pub fn wait_for_warm_up(
     activation_epoch: Epoch,
-    mut epoch_info: RpcEpochInfo,
+    mut epoch_info: EpochInfo,
     rpc_client: &RpcClient,
     stake_config: &StakeConfig,
     genesis_config: &GenesisConfig,
-    notifier: &notifier::Notifier,
+    notifier: &solana_notifier::Notifier,
 ) {
     // Sleep until activation_epoch has finished
     if epoch_info.epoch <= activation_epoch {
-        notifier.notify(&format!(
+        notifier.send(&format!(
             "Waiting until epoch {} is finished...",
             activation_epoch
         ));
@@ -105,7 +106,7 @@ pub fn wait_for_warm_up(
             let warm_up_epochs = calculate_stake_warmup(stake_entry, stake_config);
             let stake_warmed_up_epoch = latest_epoch + warm_up_epochs;
             if stake_warmed_up_epoch > current_epoch {
-                notifier.notify(&format!(
+                notifier.send(&format!(
                     "Waiting until epoch {} for stake to warmup (current epoch is {})...",
                     stake_warmed_up_epoch, current_epoch
                 ));

@@ -1,7 +1,8 @@
 use serde_json::{json, Value};
+use std::fmt;
 use thiserror::Error;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum RpcRequest {
     DeregisterNode,
     ValidatorExit,
@@ -15,14 +16,17 @@ pub enum RpcRequest {
     GetConfirmedTransaction,
     GetEpochInfo,
     GetEpochSchedule,
+    GetFeeCalculatorForBlockhash,
+    GetFeeRateGovernor,
+    GetFees,
     GetGenesisHash,
     GetIdentity,
     GetInflation,
+    GetLargestAccounts,
     GetLeaderSchedule,
+    GetMinimumBalanceForRentExemption,
     GetProgramAccounts,
     GetRecentBlockhash,
-    GetFeeCalculatorForBlockhash,
-    GetFeeRateGovernor,
     GetSignatureStatuses,
     GetSlot,
     GetSlotLeader,
@@ -30,24 +34,21 @@ pub enum RpcRequest {
     GetStorageTurnRate,
     GetSlotsPerSegment,
     GetStoragePubkeysForSlot,
+    GetSupply,
     GetTotalSupply,
     GetTransactionCount,
     GetVersion,
     GetVoteAccounts,
+    MinimumLedgerSlot,
     RegisterNode,
     RequestAirdrop,
     SendTransaction,
+    SimulateTransaction,
     SignVote,
-    GetMinimumBalanceForRentExemption,
-    MinimumLedgerSlot,
 }
 
-pub const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 256;
-pub const MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE: u64 = 10_000;
-
-impl RpcRequest {
-    pub(crate) fn build_request_json(&self, id: u64, params: Value) -> Value {
-        let jsonrpc = "2.0";
+impl fmt::Display for RpcRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let method = match self {
             RpcRequest::DeregisterNode => "deregisterNode",
             RpcRequest::ValidatorExit => "validatorExit",
@@ -61,14 +62,17 @@ impl RpcRequest {
             RpcRequest::GetConfirmedTransaction => "getConfirmedTransaction",
             RpcRequest::GetEpochInfo => "getEpochInfo",
             RpcRequest::GetEpochSchedule => "getEpochSchedule",
+            RpcRequest::GetFeeCalculatorForBlockhash => "getFeeCalculatorForBlockhash",
+            RpcRequest::GetFeeRateGovernor => "getFeeRateGovernor",
+            RpcRequest::GetFees => "getFees",
             RpcRequest::GetGenesisHash => "getGenesisHash",
             RpcRequest::GetIdentity => "getIdentity",
             RpcRequest::GetInflation => "getInflation",
+            RpcRequest::GetLargestAccounts => "getLargestAccounts",
             RpcRequest::GetLeaderSchedule => "getLeaderSchedule",
+            RpcRequest::GetMinimumBalanceForRentExemption => "getMinimumBalanceForRentExemption",
             RpcRequest::GetProgramAccounts => "getProgramAccounts",
             RpcRequest::GetRecentBlockhash => "getRecentBlockhash",
-            RpcRequest::GetFeeCalculatorForBlockhash => "getFeeCalculatorForBlockhash",
-            RpcRequest::GetFeeRateGovernor => "getFeeRateGovernor",
             RpcRequest::GetSignatureStatuses => "getSignatureStatuses",
             RpcRequest::GetSlot => "getSlot",
             RpcRequest::GetSlotLeader => "getSlotLeader",
@@ -76,21 +80,34 @@ impl RpcRequest {
             RpcRequest::GetStorageTurnRate => "getStorageTurnRate",
             RpcRequest::GetSlotsPerSegment => "getSlotsPerSegment",
             RpcRequest::GetStoragePubkeysForSlot => "getStoragePubkeysForSlot",
+            RpcRequest::GetSupply => "getSupply",
             RpcRequest::GetTotalSupply => "getTotalSupply",
             RpcRequest::GetTransactionCount => "getTransactionCount",
             RpcRequest::GetVersion => "getVersion",
             RpcRequest::GetVoteAccounts => "getVoteAccounts",
+            RpcRequest::MinimumLedgerSlot => "minimumLedgerSlot",
             RpcRequest::RegisterNode => "registerNode",
             RpcRequest::RequestAirdrop => "requestAirdrop",
             RpcRequest::SendTransaction => "sendTransaction",
+            RpcRequest::SimulateTransaction => "simulateTransaction",
             RpcRequest::SignVote => "signVote",
-            RpcRequest::GetMinimumBalanceForRentExemption => "getMinimumBalanceForRentExemption",
-            RpcRequest::MinimumLedgerSlot => "minimumLedgerSlot",
         };
+
+        write!(f, "{}", method)
+    }
+}
+
+pub const NUM_LARGEST_ACCOUNTS: usize = 20;
+pub const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 256;
+pub const MAX_GET_CONFIRMED_SIGNATURES_FOR_ADDRESS_SLOT_RANGE: u64 = 10_000;
+
+impl RpcRequest {
+    pub(crate) fn build_request_json(self, id: u64, params: Value) -> Value {
+        let jsonrpc = "2.0";
         json!({
            "jsonrpc": jsonrpc,
            "id": id,
-           "method": method,
+           "method": format!("{}", self),
            "params": params,
         })
     }
@@ -138,7 +155,7 @@ mod tests {
         assert_eq!(request["method"], "getRecentBlockhash");
 
         let test_request = RpcRequest::GetFeeCalculatorForBlockhash;
-        let request = test_request.build_request_json(1, json!([addr.clone()]));
+        let request = test_request.build_request_json(1, json!([addr]));
         assert_eq!(request["method"], "getFeeCalculatorForBlockhash");
 
         let test_request = RpcRequest::GetFeeRateGovernor;

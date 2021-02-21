@@ -75,25 +75,26 @@ fn stakes(network: &Network) -> HashMap<Pubkey, u64> {
 fn star_network_create(num: usize) -> Network {
     let entry = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
         &Pubkey::new_rand(),
+        &Pubkey::new_rand(),
         0,
     )));
-    let mut network: HashMap<_, _> = (1..num)
-        .map(|_| {
-            let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
-                &Pubkey::new_rand(),
-                0,
-            )));
-            let id = new.label().pubkey();
-            let mut node = CrdsGossip::default();
-            node.crds.insert(new.clone(), 0).unwrap();
-            node.crds.insert(entry.clone(), 0).unwrap();
-            node.set_self(&id);
-            (new.label().pubkey(), Node::new(Arc::new(Mutex::new(node))))
-        })
-        .collect();
+    let mut network: HashMap<_, _> =
+        (1..num)
+            .map(|_| {
+                let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(
+                    ContactInfo::new_localhost(&Pubkey::new_rand(), &Pubkey::new_rand(), 0),
+                ));
+                let id = new.label().pubkey();
+                let mut node = CrdsGossip::default();
+                node.crds.insert(new.clone(), 0).unwrap();
+                node.crds.insert(entry.clone(), 0).unwrap();
+                node.set_self(&id);
+                (new.label().pubkey(), Node::new(Arc::new(Mutex::new(node))))
+            })
+            .collect();
     let mut node = CrdsGossip::default();
     let id = entry.label().pubkey();
-    node.crds.insert(entry.clone(), 0).unwrap();
+    node.crds.insert(entry, 0).unwrap();
     node.set_self(&id);
     network.insert(id, Node::new(Arc::new(Mutex::new(node))));
     Network::new(network)
@@ -102,49 +103,50 @@ fn star_network_create(num: usize) -> Network {
 fn rstar_network_create(num: usize) -> Network {
     let entry = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
         &Pubkey::new_rand(),
+        &Pubkey::new_rand(),
         0,
     )));
     let mut origin = CrdsGossip::default();
     let id = entry.label().pubkey();
-    origin.crds.insert(entry.clone(), 0).unwrap();
+    origin.crds.insert(entry, 0).unwrap();
     origin.set_self(&id);
-    let mut network: HashMap<_, _> = (1..num)
-        .map(|_| {
-            let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
-                &Pubkey::new_rand(),
-                0,
-            )));
-            let id = new.label().pubkey();
-            let mut node = CrdsGossip::default();
-            node.crds.insert(new.clone(), 0).unwrap();
-            origin.crds.insert(new.clone(), 0).unwrap();
-            node.set_self(&id);
-            (new.label().pubkey(), Node::new(Arc::new(Mutex::new(node))))
-        })
-        .collect();
+    let mut network: HashMap<_, _> =
+        (1..num)
+            .map(|_| {
+                let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(
+                    ContactInfo::new_localhost(&Pubkey::new_rand(), &Pubkey::new_rand(), 0),
+                ));
+                let id = new.label().pubkey();
+                let mut node = CrdsGossip::default();
+                node.crds.insert(new.clone(), 0).unwrap();
+                origin.crds.insert(new.clone(), 0).unwrap();
+                node.set_self(&id);
+                (new.label().pubkey(), Node::new(Arc::new(Mutex::new(node))))
+            })
+            .collect();
     network.insert(id, Node::new(Arc::new(Mutex::new(origin))));
     Network::new(network)
 }
 
 fn ring_network_create(num: usize) -> Network {
-    let mut network: HashMap<_, _> = (0..num)
-        .map(|_| {
-            let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
-                &Pubkey::new_rand(),
-                0,
-            )));
-            let id = new.label().pubkey();
-            let mut node = CrdsGossip::default();
-            node.crds.insert(new.clone(), 0).unwrap();
-            node.set_self(&id);
-            (new.label().pubkey(), Node::new(Arc::new(Mutex::new(node))))
-        })
-        .collect();
+    let mut network: HashMap<_, _> =
+        (0..num)
+            .map(|_| {
+                let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(
+                    ContactInfo::new_localhost(&Pubkey::new_rand(), &Pubkey::new_rand(), 0),
+                ));
+                let id = new.label().pubkey();
+                let mut node = CrdsGossip::default();
+                node.crds.insert(new.clone(), 0).unwrap();
+                node.set_self(&id);
+                (new.label().pubkey(), Node::new(Arc::new(Mutex::new(node))))
+            })
+            .collect();
     let keys: Vec<Pubkey> = network.keys().cloned().collect();
     for k in 0..keys.len() {
         let start_info = {
             let start = &network[&keys[k]];
-            let start_id = start.lock().unwrap().id.clone();
+            let start_id = start.lock().unwrap().id;
             start
                 .lock()
                 .unwrap()
@@ -161,29 +163,29 @@ fn ring_network_create(num: usize) -> Network {
 
 fn connected_staked_network_create(stakes: &[u64]) -> Network {
     let num = stakes.len();
-    let mut network: HashMap<_, _> = (0..num)
-        .map(|n| {
-            let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(ContactInfo::new_localhost(
-                &Pubkey::new_rand(),
-                0,
-            )));
-            let id = new.label().pubkey();
-            let mut node = CrdsGossip::default();
-            node.crds.insert(new.clone(), 0).unwrap();
-            node.set_self(&id);
-            (
-                new.label().pubkey(),
-                Node::staked(Arc::new(Mutex::new(node)), stakes[n]),
-            )
-        })
-        .collect();
+    let mut network: HashMap<_, _> =
+        (0..num)
+            .map(|n| {
+                let new = CrdsValue::new_unsigned(CrdsData::ContactInfo(
+                    ContactInfo::new_localhost(&Pubkey::new_rand(), &Pubkey::new_rand(), 0),
+                ));
+                let id = new.label().pubkey();
+                let mut node = CrdsGossip::default();
+                node.crds.insert(new.clone(), 0).unwrap();
+                node.set_self(&id);
+                (
+                    new.label().pubkey(),
+                    Node::staked(Arc::new(Mutex::new(node)), stakes[n]),
+                )
+            })
+            .collect();
 
     let keys: Vec<Pubkey> = network.keys().cloned().collect();
     let start_entries: Vec<_> = keys
         .iter()
         .map(|k| {
             let start = &network[k].lock().unwrap();
-            let start_id = start.id.clone();
+            let start_id = start.id;
             let start_label = CrdsValueLabel::ContactInfo(start_id);
             start.crds.lookup(&start_label).unwrap().clone()
         })
@@ -448,15 +450,16 @@ fn network_run_pull(
                     .unwrap();
                 bytes += serialized_size(&rsp).unwrap() as usize;
                 msgs += rsp.len();
-                network.get(&from).map(|node| {
+                if let Some(node) = network.get(&from) {
                     node.lock()
                         .unwrap()
                         .mark_pull_request_creation_time(&from, now);
                     overhead += node
                         .lock()
                         .unwrap()
-                        .process_pull_response(&from, &timeouts, rsp, now);
-                });
+                        .process_pull_response(&from, &timeouts, rsp, now)
+                        .0;
+                }
                 (bytes, msgs, overhead)
             })
             .collect();
@@ -573,7 +576,7 @@ fn test_prune_errors() {
     let mut crds_gossip = CrdsGossip::default();
     crds_gossip.id = Pubkey::new(&[0; 32]);
     let id = crds_gossip.id;
-    let ci = ContactInfo::new_localhost(&Pubkey::new(&[1; 32]), 0);
+    let ci = ContactInfo::new_localhost(&Pubkey::new(&[1; 32]), &Pubkey::new(&[1; 32]), 0);
     let prune_pubkey = Pubkey::new(&[2; 32]);
     crds_gossip
         .crds

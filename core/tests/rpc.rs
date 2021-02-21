@@ -120,14 +120,14 @@ fn test_rpc_invalid_requests() {
     let json = post_rpc(req, &leader_data);
 
     let the_error = json["error"]["message"].as_str().unwrap();
-    assert_eq!(the_error, "Invalid request");
+    assert_eq!(the_error, "Invalid");
 
     // test invalid get_account_info request
     let req = json_req!("getAccountInfo", json!(["invalid9999"]));
     let json = post_rpc(req, &leader_data);
 
     let the_error = json["error"]["message"].as_str().unwrap();
-    assert_eq!(the_error, "Invalid request");
+    assert_eq!(the_error, "Invalid");
 
     // test invalid get_account_info request
     let req = json_req!("getAccountInfo", json!([bob_pubkey.to_string()]));
@@ -265,7 +265,7 @@ fn test_rpc_subscriptions() {
     }
 
     // Wait for all signature subscriptions
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(7);
     while !signature_set.is_empty() {
         let timeout = deadline.saturating_duration_since(Instant::now());
         match status_receiver.recv_timeout(timeout) {

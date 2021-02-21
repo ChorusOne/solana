@@ -20,6 +20,7 @@ mod tests {
     };
     use solana_sdk::{
         clock::Slot,
+        genesis_config::GenesisConfig,
         hash::hashv,
         pubkey::Pubkey,
         signature::{Keypair, Signer},
@@ -95,6 +96,7 @@ mod tests {
                 &CompressionType::Bzip2,
             ),
             CompressionType::Bzip2,
+            &GenesisConfig::default(),
         )
         .unwrap();
 
@@ -265,7 +267,7 @@ mod tests {
             };
 
             bank_forks
-                .generate_accounts_package(slot, &vec![], &package_sender)
+                .generate_accounts_package(slot, &[], &package_sender)
                 .unwrap();
 
             if slot == saved_slot as u64 {
@@ -342,7 +344,6 @@ mod tests {
             &saved_snapshots_dir
                 .path()
                 .join(snapshot_utils::SNAPSHOT_STATUS_CACHE_FILE_NAME),
-            solana_runtime::bank::MAX_SNAPSHOT_DATA_FILE_SIZE,
             |stream| {
                 serialize_into(stream, &dummy_slot_deltas)?;
                 Ok(())

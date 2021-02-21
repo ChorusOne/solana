@@ -208,8 +208,13 @@ pub fn split(
     split_stake_pubkey: &Pubkey,
 ) -> Vec<Instruction> {
     vec![
-        system_instruction::allocate(split_stake_pubkey, std::mem::size_of::<StakeState>() as u64),
-        system_instruction::assign(split_stake_pubkey, &id()),
+        system_instruction::create_account(
+            authorized_pubkey, // Sending 0, so any signer will suffice
+            split_stake_pubkey,
+            0,
+            std::mem::size_of::<StakeState>() as u64,
+            &id(),
+        ),
         _split(
             stake_pubkey,
             authorized_pubkey,
@@ -228,10 +233,12 @@ pub fn split_with_seed(
     seed: &str,                  // seed
 ) -> Vec<Instruction> {
     vec![
-        system_instruction::allocate_with_seed(
+        system_instruction::create_account_with_seed(
+            authorized_pubkey, // Sending 0, so any signer will suffice
             split_stake_pubkey,
             base,
             seed,
+            0,
             std::mem::size_of::<StakeState>() as u64,
             &id(),
         ),
@@ -439,7 +446,7 @@ mod tests {
                 RefCell::new(if sysvar::clock::check_id(&meta.pubkey) {
                     sysvar::clock::Clock::default().create_account(1)
                 } else if sysvar::rewards::check_id(&meta.pubkey) {
-                    sysvar::rewards::create_account(1, 0.0, 0.0)
+                    sysvar::rewards::create_account(1, 0.0)
                 } else if sysvar::stake_history::check_id(&meta.pubkey) {
                     sysvar::stake_history::create_account(1, &StakeHistory::default())
                 } else if config::check_id(&meta.pubkey) {
@@ -489,7 +496,7 @@ mod tests {
                     &Pubkey::default(),
                     100,
                     &Pubkey::default()
-                )[2]
+                )[1]
             ),
             Err(InstructionError::InvalidAccountData),
         );
@@ -680,7 +687,7 @@ mod tests {
                     KeyedAccount::new(
                         &sysvar::rewards::id(),
                         false,
-                        &RefCell::new(sysvar::rewards::create_account(1, 0.0, 0.0))
+                        &RefCell::new(sysvar::rewards::create_account(1, 0.0))
                     ),
                     KeyedAccount::new(
                         &sysvar::stake_history::id(),
@@ -719,7 +726,7 @@ mod tests {
                     KeyedAccount::new(
                         &sysvar::rewards::id(),
                         false,
-                        &RefCell::new(sysvar::rewards::create_account(1, 0.0, 0.0))
+                        &RefCell::new(sysvar::rewards::create_account(1, 0.0))
                     ),
                 ],
                 &serialize(&StakeInstruction::Deactivate).unwrap(),

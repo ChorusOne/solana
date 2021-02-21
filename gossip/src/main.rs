@@ -15,9 +15,16 @@ use std::process::exit;
 fn main() -> Result<(), Box<dyn error::Error>> {
     solana_logger::setup_with_default("solana=info");
 
+    let shred_version_arg = Arg::with_name("shred_version")
+        .long("shred-version")
+        .value_name("VERSION")
+        .takes_value(true)
+        .default_value("0")
+        .help("Filter gossip nodes by this shred version");
+
     let matches = App::new(crate_name!())
         .about(crate_description!())
-        .version(solana_clap_utils::version!())
+        .version(solana_version::version!())
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(
             SubCommand::with_name("rpc-url")
@@ -50,9 +57,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .long("timeout")
                         .value_name("SECONDS")
                         .takes_value(true)
-                        .default_value("5")
+                        .default_value("15")
                         .help("Timeout in seconds"),
                 )
+                .arg(&shred_version_arg)
                 .setting(AppSettings::DisableVersion),
         )
         .subcommand(
@@ -110,6 +118,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                         .validator(is_pubkey)
                         .help("Public key of a specific node to wait for"),
                 )
+                .arg(&shred_version_arg)
                 .arg(
                     Arg::with_name("timeout")
                         .long("timeout")
@@ -167,6 +176,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             let pubkey = matches
                 .value_of("node_pubkey")
                 .map(|pubkey_str| pubkey_str.parse::<Pubkey>().unwrap());
+            let shred_version = value_t_or_exit!(matches, "shred_version", u16);
 
             let entrypoint_addr = parse_entrypoint(&matches);
 
@@ -205,13 +215,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 }),
             );
 
-            let (_all_peers, validators, _archivers) = discover(
+            let (_all_peers, validators) = discover(
                 entrypoint_addr.as_ref(),
                 num_nodes,
                 timeout,
                 pubkey,
                 None,
                 Some(&gossip_addr),
+                shred_version,
             )?;
 
             if timeout.is_some() {
@@ -251,13 +262,15 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             let all = matches.is_present("all");
             let entrypoint_addr = parse_entrypoint(&matches);
             let timeout = value_t_or_exit!(matches, "timeout", u64);
-            let (_all_peers, validators, _archivers) = discover(
+            let shred_version = value_t_or_exit!(matches, "shred_version", u16);
+            let (_all_peers, validators) = discover(
                 entrypoint_addr.as_ref(),
                 Some(1),
                 Some(timeout),
                 None,
                 entrypoint_addr.as_ref(),
                 None,
+                shred_version,
             )?;
 
             let rpc_addrs: Vec<_> = validators
@@ -291,13 +304,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .unwrap()
                 .parse::<Pubkey>()
                 .unwrap();
-            let (_all_peers, validators, _archivers) = discover(
+            let (_all_peers, validators) = discover(
                 entrypoint_addr.as_ref(),
                 None,
                 None,
                 Some(pubkey),
                 None,
                 None,
+                0,
             )?;
             let validator = validators.iter().find(|x| x.id == pubkey).unwrap();
 
