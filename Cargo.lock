@@ -7950,6 +7950,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-prometheus"
+version = "1.10.28"
+dependencies = [
+ "bincode",
+ "jsonrpc-http-server",
+ "log",
+ "serde",
+ "serde_json",
+ "serde_yaml 0.9.34+deprecated",
+ "solana-account-decoder",
+ "solana-accounts-db",
+ "solana-config-program",
+ "solana-gossip",
+ "solana-runtime",
+ "solana-sdk",
+ "solana-vote-program",
+]
+
+[[package]]
 name = "solana-pubkey"
 version = "2.1.11"
 dependencies = [
@@ -8115,6 +8134,7 @@ dependencies = [
  "solana-perf",
  "solana-poh",
  "solana-program-runtime",
+ "solana-prometheus",
  "solana-rayon-threadlimit",
  "solana-rpc-client-api",
  "solana-runtime",
