@@ -240,6 +240,7 @@ pub struct ValidatorConfig {
     // Empty = repair with all
     pub gossip_validators: Option<HashSet<Pubkey>>,
     // None = gossip with all
+    pub vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
     pub accounts_hash_interval_slots: u64,
     pub max_genesis_archive_unpacked_size: u64,
     pub wal_recovery_mode: Option<BlockstoreRecoveryMode>,
@@ -319,7 +320,8 @@ impl Default for ValidatorConfig {
             repair_validators: None,
             repair_whitelist: Arc::new(RwLock::new(HashSet::default())),
             gossip_validators: None,
-            accounts_hash_interval_slots: u64::MAX,
+            vote_accounts_to_monitor: Arc::new(HashSet::new()),
+            accounts_hash_interval_slots: std::u64::MAX,
             max_genesis_archive_unpacked_size: MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
             wal_recovery_mode: None,
             run_verification: true,
@@ -1015,6 +1017,7 @@ impl Validator {
 
         let rpc_override_health_check =
             Arc::new(AtomicBool::new(config.rpc_config.disable_health_check));
+        let rpc_enable_prometheus_metrics = config.rpc_config.rpc_enable_prometheus_metrics;
         let (
             json_rpc_service,
             pubsub_service,
@@ -1055,6 +1058,7 @@ impl Validator {
                 config.validator_exit.clone(),
                 exit.clone(),
                 rpc_override_health_check.clone(),
+                rpc_enable_prometheus_metrics,
                 startup_verification_complete,
                 optimistically_confirmed_bank.clone(),
                 config.send_transaction_service_config.clone(),
@@ -1064,6 +1068,7 @@ impl Validator {
                 max_complete_transaction_status_slot,
                 max_complete_rewards_slot,
                 prioritization_fee_cache.clone(),
+                config.vote_accounts_to_monitor.clone(),
             )?;
 
             let pubsub_service = if !config.rpc_config.full_api {

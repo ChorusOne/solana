@@ -152,6 +152,7 @@ pub struct JsonRpcConfig {
     pub rpc_threads: usize,
     pub rpc_niceness_adj: i8,
     pub full_api: bool,
+    pub rpc_enable_prometheus_metrics: bool,
     pub rpc_scan_and_fix_roots: bool,
     pub max_request_body_size: Option<usize>,
     /// Disable the health check, used for tests and TestValidator
