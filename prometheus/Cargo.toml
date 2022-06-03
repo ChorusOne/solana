@@ -1,0 +1,28 @@
+[package]
+name = "solana-prometheus"
+version = "1.10.28"
+description = "Solana Prometheus"
+authors = ["ChorusOne <techops@chorus.one>"]
+repository = "https://github.com/ChorusOne/solana"
+license = "Apache-2.0"
+edition = "2021"
+
+[dependencies]
+jsonrpc-http-server = "18.0.0"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.79"
+solana-gossip = { path = "../gossip" }
+solana-runtime = { path = "../runtime" }
+solana-sdk = { path = "../sdk" }
+solana-vote-program = { path = "../programs/vote" }
+solana-config-program = { path = "../programs/config" }
+bincode = "1.3.3"
+solana-account-decoder = { path = "../account-decoder" }
+solana-accounts-db = { path = "../accounts-db" }
+
+[lib]
+crate-type = ["lib"]
+name = "solana_prometheus"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
