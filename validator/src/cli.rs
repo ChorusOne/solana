@@ -1946,7 +1946,27 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                         .multiple(true)
                 )
                 .after_help("Note: At least one arg must be used. Using multiple is ok"),
-        );
+        )
+        // Chorus changes
+        .arg(
+            Arg::with_name("enable_prometheus_metrics")
+                .long("enable-prometheus-metrics")
+                .takes_value(false)
+                .help("Expose prometheus on RPC endpoint /metrics")
+        )
+        .arg(
+            Arg::with_name("monitor_vote_account")
+                .long("monitor-vote-account")
+                .takes_value(true)
+                .value_name("PUBKEY")
+                .validator(is_pubkey)
+                .multiple(true)
+                .help("Additional vote accounts expose Prometheus metrics about. \
+                   The validator's own vote account is always included implicitly \
+                   if there is one.")
+        )
+        // End Chorus changes
+    ;
 }
 
 /// Deprecated argument description should be moved into the [`deprecated_arguments()`] function,
