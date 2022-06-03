@@ -1603,6 +1603,7 @@ pub fn main() {
             rpc_niceness_adj: value_t_or_exit!(matches, "rpc_niceness_adj", i8),
             account_indexes: account_indexes.clone(),
             rpc_scan_and_fix_roots: matches.is_present("rpc_scan_and_fix_roots"),
+            rpc_enable_prometheus_metrics: matches.is_present("enable_prometheus_metrics"),
             max_request_body_size: Some(value_t_or_exit!(
                 matches,
                 "rpc_max_request_body_size",
@@ -1729,6 +1730,19 @@ pub fn main() {
         }
         Keypair::new().pubkey()
     });
+
+    validator_config.monitor_accounts_config_path = matches
+        .value_of("monitor_accounts_config_path")
+        .map(PathBuf::from);
+
+    validator_config.default_vote_account_to_monitor = if matches.is_present("vote_account") {
+        Some(
+            pubkey_of(&matches, "vote_account")
+                .expect("Does not fail, as this is validated by Clap earlier."),
+        )
+    } else {
+        None
+    };
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
