@@ -5850,6 +5850,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-prometheus"
+version = "1.10.28"
+dependencies = [
+ "jsonrpc-http-server",
+ "solana-gossip",
+ "solana-runtime",
+ "solana-sdk 1.10.28",
+]
+
+[[package]]
 name = "solana-rayon-threadlimit"
 version = "1.14.16"
 dependencies = [
@@ -5911,6 +5921,7 @@ dependencies = [
  "solana-net-utils",
  "solana-perf",
  "solana-poh",
+ "solana-prometheus",
  "solana-rayon-threadlimit",
  "solana-runtime",
  "solana-sdk 1.14.16",
