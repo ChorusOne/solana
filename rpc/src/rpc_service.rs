@@ -1,5 +1,6 @@
 //! The `rpc_service` module implements the Solana JSON RPC service.
 
+use solana_prometheus::PrometheusMetrics;
 use {
     crate::{
         cluster_tpu_info::ClusterTpuInfo,
@@ -35,7 +36,7 @@ use {
     },
     solana_sdk::{
         exit::Exit, genesis_config::DEFAULT_GENESIS_DOWNLOAD_PATH, hash::Hash,
-        native_token::lamports_to_sol,
+        native_token::lamports_to_sol, pubkey::Pubkey,
     },
     solana_send_transaction_service::{
         send_transaction_service::{self, SendTransactionService},
@@ -74,6 +75,7 @@ struct RpcRequestMiddleware {
     snapshot_config: Option<SnapshotConfig>,
     bank_forks: Arc<RwLock<BankForks>>,
     health: Arc<RpcHealth>,
+    prometheus_metrics: Option<Arc<PrometheusMetrics>>,
 }
 
 impl RpcRequestMiddleware {
@@ -82,6 +84,7 @@ impl RpcRequestMiddleware {
         snapshot_config: Option<SnapshotConfig>,
         bank_forks: Arc<RwLock<BankForks>>,
         health: Arc<RpcHealth>,
+        prometheus_metrics: Option<Arc<PrometheusMetrics>>,
     ) -> Self {
         Self {
             ledger_path,
@@ -96,6 +99,7 @@ impl RpcRequestMiddleware {
             snapshot_config,
             bank_forks,
             health,
+            prometheus_metrics,
         }
     }
 
@@ -295,14 +299,24 @@ impl RequestMiddleware for RpcRequestMiddleware {
             process_rest(&self.bank_forks, path)
         } else if self.is_file_get_path(request.uri().path()) {
             self.process_file_get(request.uri().path())
-        } else if request.uri().path() == "/health" {
-            hyper::Response::builder()
-                .status(hyper::StatusCode::OK)
-                .body(hyper::Body::from(self.health_check()))
-                .unwrap()
-                .into()
         } else {
-            request.into()
+            match request.uri().path() {
+                "/health" => hyper::Response::builder()
+                    .status(hyper::StatusCode::OK)
+                    .body(hyper::Body::from(self.health_check()))
+                    .unwrap()
+                    .into(),
+                "/metrics" if self.prometheus_metrics.is_some() => {
+                    let prometheus_metrics = self.prometheus_metrics.as_ref().unwrap();
+                    hyper::Response::builder()
+                        .status(hyper::StatusCode::OK)
+                        .header("Content-Type", "text/plain; version=0.0.4; charset=UTF-8")
+                        .body(hyper::Body::from(prometheus_metrics.render_prometheus()))
+                        .unwrap()
+                        .into()
+                }
+                _ => request.into(),
+            }
         }
     }
 }
@@ -385,6 +399,7 @@ impl JsonRpcService {
         validator_exit: Arc<RwLock<Exit>>,
         exit: Arc<AtomicBool>,
         override_health_check: Arc<AtomicBool>,
+        enable_prometheus_metrics: bool,
         startup_verification_complete: Arc<AtomicBool>,
         optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
         send_transaction_service_config: send_transaction_service::Config,
@@ -394,6 +409,8 @@ impl JsonRpcService {
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         max_complete_rewards_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
+        monitor_accounts_config_path: Option<PathBuf>,
+        default_vote_account_to_monitor: Option<Pubkey>,
     ) -> Result<Self, String> {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -487,7 +504,7 @@ impl JsonRpcService {
             config,
             snapshot_config.clone(),
             bank_forks.clone(),
-            block_commitment_cache,
+            block_commitment_cache.clone(),
             blockstore,
             validator_exit.clone(),
             health.clone(),
@@ -503,6 +520,8 @@ impl JsonRpcService {
             prioritization_fee_cache,
             Arc::clone(&runtime),
         );
+
+        let cluster_info_clone_for_metrics = cluster_info.clone();
 
         let leader_info =
             poh_recorder.map(|recorder| ClusterTpuInfo::new(cluster_info.clone(), recorder));
@@ -542,11 +561,25 @@ impl JsonRpcService {
                     io.extend_with(rpc_full::FullImpl.to_delegate());
                 }
 
+                let prometheus_metrics = if enable_prometheus_metrics {
+                    Some(PrometheusMetrics::new(
+                        bank_forks.clone(),
+                        block_commitment_cache.clone(),
+                        cluster_info_clone_for_metrics,
+                        monitor_accounts_config_path,
+                        default_vote_account_to_monitor,
+                        snapshot_config.clone(),
+                    ))
+                } else {
+                    None
+                };
+
                 let request_middleware = RpcRequestMiddleware::new(
                     ledger_path,
                     snapshot_config,
                     bank_forks.clone(),
                     health.clone(),
+                    prometheus_metrics,
                 );
                 let server = ServerBuilder::with_meta_extractor(
                     io,
@@ -708,6 +741,7 @@ mod tests {
             validator_exit,
             exit,
             Arc::new(AtomicBool::new(false)),
+            false,
             Arc::new(AtomicBool::new(true)),
             optimistically_confirmed_bank,
             send_transaction_service::Config {
@@ -721,6 +755,8 @@ mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
+            None,
+            None,
         )
         .expect("assume successful JsonRpcService start");
         let thread = rpc_service.thread_hdl.thread();
@@ -815,12 +851,14 @@ mod tests {
             None,
             bank_forks.clone(),
             health.clone(),
+            None,
         );
         let rrm_with_snapshot_config = RpcRequestMiddleware::new(
             ledger_path.path().to_path_buf(),
             Some(SnapshotConfig::default()),
             bank_forks,
             health,
+            None,
         );
 
         assert!(rrm.is_file_get_path(DEFAULT_GENESIS_DOWNLOAD_PATH));
@@ -923,6 +961,7 @@ mod tests {
             None,
             bank_forks,
             RpcHealth::stub(optimistically_confirmed_bank, blockstore),
+            None,
         );
 
         // File does not exist => request should fail.
