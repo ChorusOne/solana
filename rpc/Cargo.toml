@@ -69,6 +69,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["codec", "compat"] }
 
+solana-prometheus = { path = "../prometheus" }
+
 [dev-dependencies]
 agave-reserved-account-keys = { workspace = true }
 serial_test = { workspace = true }
