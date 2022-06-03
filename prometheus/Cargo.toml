@@ -1,0 +1,21 @@
+[package]
+name = "solana-prometheus"
+version = "1.10.27"
+description = "Solana Prometheus"
+authors = ["ChorusOne <techops@chorus.one>"]
+repository = "https://github.com/ChorusOne/solana"
+license = "Apache-2.0"
+edition = "2021"
+
+[dependencies]
+jsonrpc-http-server = "18.0.0"
+solana-gossip = { path = "../gossip", version = "=1.10.27" }
+solana-runtime = { path = "../runtime", version = "=1.10.27" }
+solana-sdk = { path = "../sdk", version = "=1.10.27" }
+
+[lib]
+crate-type = ["lib"]
+name = "solana_prometheus"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
