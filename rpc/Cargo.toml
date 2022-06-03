@@ -55,6 +55,8 @@ thiserror = "1.0"
 tokio = { version = "~1.14.1", features = ["full"] }
 tokio-util = { version = "0.6", features = ["codec", "compat"] }
 
+solana-prometheus = { path = "../prometheus", version = "=1.9.28"}
+
 [dev-dependencies]
 serial_test = "0.5.1"
 solana-net-utils = { path = "../net-utils", version = "=1.9.28" }
