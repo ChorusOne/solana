@@ -60,6 +60,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["codec", "compat"] }
 
+solana-prometheus = { path = "../prometheus" }
+
 [dev-dependencies]
 serial_test = { workspace = true }
 solana-net-utils = { workspace = true }

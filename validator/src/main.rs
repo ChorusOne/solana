@@ -398,6 +398,23 @@ fn hardforks_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Slot>> {
     }
 }
 
+fn get_vote_accounts_to_monitor(matches: &ArgMatches<'_>) -> HashSet<Pubkey> {
+    let vote_account = if matches.is_present("vote_account") {
+        vec![pubkey_of(&matches, "vote_account")
+            .expect("Does not fail, as this is validated by Clap earlier.")]
+    } else {
+        vec![]
+    };
+    let mut monitor_vote_accounts = if matches.is_present("monitor_vote_account") {
+        let accounts = values_t_or_exit!(matches, "monitor_vote_account", Pubkey);
+        accounts.into_iter().collect::<HashSet<Pubkey>>()
+    } else {
+        HashSet::new()
+    };
+    monitor_vote_accounts.extend(vote_account.iter());
+    monitor_vote_accounts
+}
+
 fn validators_set(
     identity_pubkey: &Pubkey,
     matches: &ArgMatches<'_>,
@@ -1341,6 +1358,7 @@ pub fn main() {
             rpc_niceness_adj: value_t_or_exit!(matches, "rpc_niceness_adj", i8),
             account_indexes: account_indexes.clone(),
             rpc_scan_and_fix_roots: matches.is_present("rpc_scan_and_fix_roots"),
+            rpc_enable_prometheus_metrics: matches.is_present("enable_prometheus_metrics"),
             max_request_body_size: Some(value_t_or_exit!(
                 matches,
                 "rpc_max_request_body_size",
@@ -1450,6 +1468,8 @@ pub fn main() {
         }
         Keypair::new().pubkey()
     });
+
+    validator_config.vote_accounts_to_monitor = Arc::new(get_vote_accounts_to_monitor(&matches));
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
