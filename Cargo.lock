@@ -5856,7 +5856,8 @@ dependencies = [
  "jsonrpc-http-server",
  "solana-gossip",
  "solana-runtime",
- "solana-sdk 1.10.28",
+ "solana-sdk 1.10.32",
+ "solana-vote-program",
 ]
 
 [[package]]
