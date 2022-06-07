@@ -12,6 +12,7 @@ jsonrpc-http-server = "18.0.0"
 solana-gossip = { path = "../gossip", version = "=1.10.27" }
 solana-runtime = { path = "../runtime", version = "=1.10.27" }
 solana-sdk = { path = "../sdk", version = "=1.10.27" }
+solana-vote-program = { path = "../programs/vote", version = "=1.10.27" }
 
 [lib]
 crate-type = ["lib"]

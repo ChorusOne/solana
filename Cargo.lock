@@ -5632,6 +5632,7 @@ dependencies = [
  "solana-gossip",
  "solana-runtime",
  "solana-sdk 1.10.27",
+ "solana-vote-program",
 ]
 
 [[package]]
