@@ -378,6 +378,23 @@ fn hardforks_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Slot>> {
     }
 }
 
+fn get_vote_accounts_to_monitor(matches: &ArgMatches<'_>) -> HashSet<Pubkey> {
+    let vote_account = if matches.is_present("vote_account") {
+        vec![pubkey_of(&matches, "vote_account")
+            .expect("Does not fail, as this is validated by Clap earlier.")]
+    } else {
+        vec![]
+    };
+    let mut monitor_vote_accounts = if matches.is_present("monitor_vote_account") {
+        let accounts = values_t_or_exit!(matches, "monitor_vote_account", Pubkey);
+        accounts.into_iter().collect::<HashSet<Pubkey>>()
+    } else {
+        HashSet::new()
+    };
+    monitor_vote_accounts.extend(vote_account.iter());
+    monitor_vote_accounts
+}
+
 fn validators_set(
     identity_pubkey: &Pubkey,
     matches: &ArgMatches<'_>,
@@ -1881,6 +1898,17 @@ pub fn main() {
             .after_help("Note: If this command exits with a non-zero status \
                          then this not a good time for a restart")
         )
+        .arg(
+            Arg::with_name("monitor_vote_account")
+            .long("monitor-vote-account")
+            .takes_value(true)
+            .value_name("PUBKEY")
+            .validator(is_pubkey)
+            .multiple(true)
+            .help("Additional vote accounts expose Prometheus metrics about. \
+                   The validator's own vote account is always included implicitly \
+                   if there is one.")
+        )
         .get_matches();
 
     let socket_addr_space = SocketAddrSpace::new(matches.is_present("allow_private_addr"));
@@ -2599,6 +2627,8 @@ pub fn main() {
         }
         Keypair::new().pubkey()
     });
+
+    validator_config.vote_accounts_to_monitor = Arc::new(get_vote_accounts_to_monitor(&matches));
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())

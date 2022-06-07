@@ -29,6 +29,7 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         known_validators: config.known_validators.clone(),
         repair_validators: config.repair_validators.clone(),
         gossip_validators: config.gossip_validators.clone(),
+        vote_accounts_to_monitor: config.vote_accounts_to_monitor.clone(),
         halt_on_known_validators_accounts_hash_mismatch: config
             .halt_on_known_validators_accounts_hash_mismatch,
         accounts_hash_fault_injection_slots: config.accounts_hash_fault_injection_slots,

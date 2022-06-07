@@ -137,6 +137,7 @@ pub struct ValidatorConfig {
     pub known_validators: Option<HashSet<Pubkey>>, // None = trust all
     pub repair_validators: Option<HashSet<Pubkey>>, // None = repair from all
     pub gossip_validators: Option<HashSet<Pubkey>>, // None = gossip with all
+    pub vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
     pub halt_on_known_validators_accounts_hash_mismatch: bool,
     pub accounts_hash_fault_injection_slots: u64, // 0 = no fault injection
     pub no_rocksdb_compaction: bool,
@@ -200,6 +201,7 @@ impl Default for ValidatorConfig {
             known_validators: None,
             repair_validators: None,
             gossip_validators: None,
+            vote_accounts_to_monitor: Arc::new(HashSet::new()),
             halt_on_known_validators_accounts_hash_mismatch: false,
             accounts_hash_fault_injection_slots: 0,
             no_rocksdb_compaction: false,
@@ -738,6 +740,7 @@ impl Validator {
                     leader_schedule_cache.clone(),
                     connection_cache.clone(),
                     max_complete_transaction_status_slot,
+                    config.vote_accounts_to_monitor.clone(),
                 )),
                 if !config.rpc_config.full_api {
                     None
