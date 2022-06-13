@@ -4,28 +4,30 @@ use crate::utils::{write_metric, Metric, MetricFamily};
 use std::{io, sync::Arc};
 
 pub fn write_bank_metrics<W: io::Write>(bank: &Arc<Bank>, out: &mut W) -> io::Result<()> {
+    let clock = bank.clock();
+
     write_metric(
         out,
         &MetricFamily {
-            name: "solana_bank_slot",
+            name: "solana_block_slot",
             help: "Current Slot",
             type_: "gauge",
-            metrics: vec![Metric::new(bank.slot())],
+            metrics: vec![Metric::new(clock.slot)],
         },
     )?;
     write_metric(
         out,
         &MetricFamily {
-            name: "solana_bank_epoch",
+            name: "solana_block_epoch",
             help: "Current Epoch",
             type_: "gauge",
-            metrics: vec![Metric::new(bank.epoch())],
+            metrics: vec![Metric::new(clock.epoch)],
         },
     )?;
     write_metric(
         out,
         &MetricFamily {
-            name: "solana_bank_successful_transaction_count",
+            name: "solana_block_successful_transaction_count",
             help: "Number of transactions in the block that executed successfully",
             type_: "gauge",
             metrics: vec![Metric::new(bank.transaction_count())],
@@ -34,10 +36,19 @@ pub fn write_bank_metrics<W: io::Write>(bank: &Arc<Bank>, out: &mut W) -> io::Re
     write_metric(
         out,
         &MetricFamily {
-            name: "solana_bank_error_transaction_count",
+            name: "solana_block_error_transaction_count",
             help: "Number of transactions in the block that executed with error",
             type_: "gauge",
             metrics: vec![Metric::new(bank.transaction_error_count())],
+        },
+    )?;
+    write_metric(
+        out,
+        &MetricFamily {
+            name: "solana_block_timestamp_seconds",
+            help: "The block's timestamp",
+            type_: "gauge",
+            metrics: vec![Metric::new(clock.unix_timestamp as u64)],
         },
     )?;
 
