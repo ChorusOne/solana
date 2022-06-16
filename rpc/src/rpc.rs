@@ -230,7 +230,7 @@ impl JsonRpcRequestProcessor {
     }
 
     #[allow(deprecated)]
-    pub fn bank(&self, commitment: Option<CommitmentConfig>) -> Arc<Bank> {
+    fn bank(&self, commitment: Option<CommitmentConfig>) -> Arc<Bank> {
         debug!("RPC commitment_config: {:?}", commitment);
 
         let commitment = commitment.unwrap_or_default();
