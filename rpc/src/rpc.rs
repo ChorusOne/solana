@@ -186,7 +186,7 @@ impl Metadata for JsonRpcRequestProcessor {}
 
 impl JsonRpcRequestProcessor {
     #[allow(deprecated)]
-    fn bank(&self, commitment: Option<CommitmentConfig>) -> Arc<Bank> {
+    pub fn bank(&self, commitment: Option<CommitmentConfig>) -> Arc<Bank> {
         debug!("RPC commitment_config: {:?}", commitment);
 
         let commitment = commitment.unwrap_or_default();
