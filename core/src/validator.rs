@@ -173,6 +173,7 @@ pub struct ValidatorConfig {
     pub wait_to_vote_slot: Option<Slot>,
     pub ledger_column_options: LedgerColumnOptions,
     pub enable_quic_servers: bool,
+    pub observable_vote_acounts: Arc<HashSet<Pubkey>>,
 }
 
 impl Default for ValidatorConfig {
@@ -237,6 +238,7 @@ impl Default for ValidatorConfig {
             wait_to_vote_slot: None,
             ledger_column_options: LedgerColumnOptions::default(),
             enable_quic_servers: true,
+            observable_vote_acounts: Arc::new(HashSet::new()),
         }
     }
 }
@@ -736,6 +738,7 @@ impl Validator {
                     leader_schedule_cache.clone(),
                     connection_cache.clone(),
                     max_complete_transaction_status_slot,
+                    config.observable_vote_acounts.clone(),
                 )),
                 if !config.rpc_config.full_api {
                     None
