@@ -709,6 +709,7 @@ impl TestValidator {
             max_ledger_shreds: config.max_ledger_shreds,
             no_wait_for_vote_to_start_leader: true,
             accounts_db_config,
+            observable_vote_acounts: Arc::new(HashSet::from_iter(vec![vote_account_address])),
             ..ValidatorConfig::default_for_test()
         };
         if let Some(ref tower_storage) = config.tower_storage {
