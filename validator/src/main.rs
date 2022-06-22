@@ -378,9 +378,11 @@ fn hardforks_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Slot>> {
     }
 }
 
-fn get_observable_vote_accounts(matches: &ArgMatches<'_>) -> HashSet<Pubkey> {
+fn get_vote_accounts_to_monitor(matches: &ArgMatches<'_>) -> HashSet<Pubkey> {
     let vote_account = if matches.is_present("vote_account") {
-        vec![pubkey_of(&matches, "vote_account").unwrap()]
+        vec![pubkey_of(&matches, "vote_account").expect(
+            "Does not fail, as this is validated by Clap earlier.",
+        )()]
     } else {
         vec![]
     };
@@ -1893,10 +1895,12 @@ pub fn main() {
             Arg::with_name("monitor_vote_account")
             .long("monitor-vote-account")
             .takes_value(true)
-            .value_name("MONITOR_VOTE_ACCOUNT")
+            .value_name("PUBKEY")
             .validator(is_pubkey)
             .multiple(true)
-            .help("The vote accounts to inspect for prometheus metrics")
+            .help("Additional vote accounts expose Prometheus metrics about. \
+                   The validator's own vote account is always included implicitly \
+                   if there is one.")
         )
         .get_matches();
 
@@ -2616,7 +2620,7 @@ pub fn main() {
         Keypair::new().pubkey()
     });
 
-    validator_config.observable_vote_acounts = get_observable_vote_accounts(&matches);
+    validator_config.vote_accounts_to_monitor = get_vote_accounts_to_monitor(&matches);
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
