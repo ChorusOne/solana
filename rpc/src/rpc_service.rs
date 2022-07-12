@@ -74,7 +74,7 @@ struct RpcRequestMiddleware {
     bank_forks: Arc<RwLock<BankForks>>,
     health: Arc<RpcHealth>,
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
-    observable_vote_accounts: Arc<HashSet<Pubkey>>,
+    vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
 }
 
 impl RpcRequestMiddleware {
@@ -84,7 +84,7 @@ impl RpcRequestMiddleware {
         bank_forks: Arc<RwLock<BankForks>>,
         health: Arc<RpcHealth>,
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
-        observable_vote_accounts: Arc<HashSet<Pubkey>>,
+        vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
     ) -> Self {
         Self {
             ledger_path,
@@ -100,7 +100,7 @@ impl RpcRequestMiddleware {
             bank_forks,
             health,
             block_commitment_cache,
-            observable_vote_accounts,
+            vote_accounts_to_monitor,
         }
     }
 
@@ -305,7 +305,7 @@ impl RequestMiddleware for RpcRequestMiddleware {
                         .body(hyper::Body::from(render_prometheus(
                             banks_with_commitment,
                             &self.health.cluster_info,
-                            &self.observable_vote_accounts,
+                            &self.vote_accounts_to_monitor,
                         )))
                         .unwrap()
                         .into()
@@ -361,7 +361,7 @@ impl JsonRpcService {
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         connection_cache: Arc<ConnectionCache>,
         current_transaction_status_slot: Arc<AtomicU64>,
-        observable_vote_accounts: Arc<HashSet<Pubkey>>,
+        vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
     ) -> Self {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -510,7 +510,7 @@ impl JsonRpcService {
                     bank_forks.clone(),
                     health.clone(),
                     block_commitment_cache.clone(),
-                    observable_vote_accounts,
+                    vote_accounts_to_monitor,
                 );
                 let server = ServerBuilder::with_meta_extractor(
                     io,
