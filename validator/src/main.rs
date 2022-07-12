@@ -380,9 +380,8 @@ fn hardforks_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Slot>> {
 
 fn get_vote_accounts_to_monitor(matches: &ArgMatches<'_>) -> HashSet<Pubkey> {
     let vote_account = if matches.is_present("vote_account") {
-        vec![pubkey_of(&matches, "vote_account").expect(
-            "Does not fail, as this is validated by Clap earlier.",
-        )()]
+        vec![pubkey_of(&matches, "vote_account")
+            .expect("Does not fail, as this is validated by Clap earlier.")]
     } else {
         vec![]
     };
@@ -2549,7 +2548,7 @@ pub fn main() {
         Keypair::new().pubkey()
     });
 
-    validator_config.vote_accounts_to_monitor = get_vote_accounts_to_monitor(&matches);
+    validator_config.vote_accounts_to_monitor = Arc::new(get_vote_accounts_to_monitor(&matches));
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
