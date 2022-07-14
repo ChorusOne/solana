@@ -401,6 +401,7 @@ pub fn main() {
         account_indexes: AccountSecondaryIndexes::default(),
         accounts_db_caching_enabled: false,
         replica_exit: Arc::new(RwLock::new(Exit::default())),
+        vote_accounts_to_monitor: Arc::new(HashSet::default()),
     };
 
     let replica = ReplicaNode::new(config);
