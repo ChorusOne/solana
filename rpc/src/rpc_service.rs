@@ -74,6 +74,7 @@ struct RpcRequestMiddleware {
     bank_forks: Arc<RwLock<BankForks>>,
     health: Arc<RpcHealth>,
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
+    vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
 }
 
 impl RpcRequestMiddleware {
@@ -83,6 +84,7 @@ impl RpcRequestMiddleware {
         bank_forks: Arc<RwLock<BankForks>>,
         health: Arc<RpcHealth>,
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
+        vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
     ) -> Self {
         Self {
             ledger_path,
@@ -98,6 +100,7 @@ impl RpcRequestMiddleware {
             bank_forks,
             health,
             block_commitment_cache,
+            vote_accounts_to_monitor,
         }
     }
 
@@ -302,6 +305,7 @@ impl RequestMiddleware for RpcRequestMiddleware {
                         .body(hyper::Body::from(render_prometheus(
                             banks_with_commitment,
                             &self.health.cluster_info,
+                            &self.vote_accounts_to_monitor,
                         )))
                         .unwrap()
                         .into()
@@ -357,6 +361,7 @@ impl JsonRpcService {
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         connection_cache: Arc<ConnectionCache>,
         current_transaction_status_slot: Arc<AtomicU64>,
+        vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
     ) -> Self {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -505,6 +510,7 @@ impl JsonRpcService {
                     bank_forks.clone(),
                     health.clone(),
                     block_commitment_cache.clone(),
+                    vote_accounts_to_monitor,
                 );
                 let server = ServerBuilder::with_meta_extractor(
                     io,
@@ -642,6 +648,7 @@ mod tests {
             Arc::new(LeaderScheduleCache::default()),
             connection_cache,
             Arc::new(AtomicU64::default()),
+            None,
         );
         let thread = rpc_service.thread_hdl.thread();
         assert_eq!(thread.name().unwrap(), "solana-jsonrpc");
@@ -688,6 +695,7 @@ mod tests {
             bank_forks.clone(),
             RpcHealth::stub(),
             block_commitment_cache,
+            None,
         );
         let rrm_with_snapshot_config = RpcRequestMiddleware::new(
             PathBuf::from("/"),
@@ -695,6 +703,7 @@ mod tests {
             bank_forks,
             RpcHealth::stub(),
             block_commitment_cache,
+            None,
         );
 
         assert!(rrm.is_file_get_path(DEFAULT_GENESIS_DOWNLOAD_PATH));
@@ -766,6 +775,7 @@ mod tests {
             create_bank_forks(),
             RpcHealth::stub(),
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
+            None,
         );
 
         // File does not exist => request should fail.
@@ -822,6 +832,7 @@ mod tests {
             create_bank_forks(),
             RpcHealth::stub(),
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
+            None,
         );
         assert_eq!(rm.health_check(), "ok");
     }
@@ -854,6 +865,7 @@ mod tests {
             create_bank_forks(),
             health,
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
+            None,
         );
 
         // No account hashes for this node or any known validators
