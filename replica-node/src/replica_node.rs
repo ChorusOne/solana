@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+
+use solana_sdk::pubkey::Pubkey;
+
 use {
     crate::accountsdb_repl_service::AccountsDbReplService,
     crossbeam_channel::unbounded,
@@ -58,6 +62,7 @@ pub struct ReplicaNodeConfig {
     pub accounts_db_caching_enabled: bool,
     pub replica_exit: Arc<RwLock<Exit>>,
     pub socket_addr_space: SocketAddrSpace,
+    pub vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
 }
 
 pub struct ReplicaNode {
@@ -251,6 +256,7 @@ fn start_client_rpc_services(
             leader_schedule_cache.clone(),
             connection_cache,
             max_complete_transaction_status_slot,
+            replica_config.vote_accounts_to_monitor.clone(),
         )),
         Some(pubsub_service),
         Some(OptimisticallyConfirmedBankTracker::new(
