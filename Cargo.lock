@@ -5853,7 +5853,12 @@ dependencies = [
 name = "solana-prometheus"
 version = "1.10.28"
 dependencies = [
+ "bincode",
  "jsonrpc-http-server",
+ "serde",
+ "serde_json",
+ "solana-account-decoder",
+ "solana-config-program",
  "solana-gossip",
  "solana-runtime",
  "solana-sdk 1.10.32",
