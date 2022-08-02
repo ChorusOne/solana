@@ -28,7 +28,7 @@ use {
     solana_metrics::inc_new_counter_info,
     solana_perf::thread::renice_this_thread,
     solana_poh::poh_recorder::PohRecorder,
-    solana_prometheus::{banks_with_commitments::BanksWithCommitments, render_prometheus},
+    solana_prometheus::{banks_with_commitments::BanksWithCommitments, render_prometheus, identity_info::IdentityInfoMap},
     solana_runtime::{
         bank_forks::BankForks, commitment::BlockCommitmentCache,
         snapshot_archive_info::SnapshotArchiveInfoGetter, snapshot_config::SnapshotConfig,
@@ -52,6 +52,7 @@ use {
     },
     tokio_util::codec::{BytesCodec, FramedRead},
 };
+use solana_prometheus::identity_info::map_vote_identity_to_info;
 
 const FULL_SNAPSHOT_REQUEST_PATH: &str = "/snapshot.tar.bz2";
 const INCREMENTAL_SNAPSHOT_REQUEST_PATH: &str = "/incremental-snapshot.tar.bz2";
@@ -75,6 +76,9 @@ struct RpcRequestMiddleware {
     health: Arc<RpcHealth>,
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
     vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+    /// Initialized based on vote_accounts_to_monitor, maps identity
+    /// pubkey associated with the vote account to the validator info.
+    identity_info_map: Arc<IdentityInfoMap>,
 }
 
 impl RpcRequestMiddleware {
@@ -97,6 +101,7 @@ impl RpcRequestMiddleware {
             )
             .unwrap(),
             snapshot_config,
+            identity_info_map: Arc::new(map_vote_identity_to_info(&bank_forks, &vote_accounts_to_monitor)),
             bank_forks,
             health,
             block_commitment_cache,
@@ -306,6 +311,7 @@ impl RequestMiddleware for RpcRequestMiddleware {
                             banks_with_commitment,
                             &self.health.cluster_info,
                             &self.vote_accounts_to_monitor,
+                            &self.identity_info_map,
                         )))
                         .unwrap()
                         .into()
