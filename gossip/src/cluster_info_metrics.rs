@@ -1,3 +1,5 @@
+use solana_prometheus_macro::ExportPrometheus;
+
 use {
     crate::crds_gossip::CrdsGossip,
     itertools::Itertools,
@@ -87,7 +89,7 @@ impl<'a, T> Drop for TimedGuard<'a, T> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, ExportPrometheus)]
 pub struct GossipStats {
     pub(crate) all_tvu_peers: Counter,
     pub(crate) bad_prune_destination: Counter,

@@ -13,6 +13,7 @@ solana-gossip = { path = "../gossip" }
 solana-runtime = { path = "../runtime" }
 solana-sdk = { path = "../sdk" }
 solana-vote-program = { path = "../programs/vote" }
+solana-prometheus-utils = { path = "utils" }
 
 [lib]
 crate-type = ["lib"]

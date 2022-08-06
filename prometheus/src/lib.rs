@@ -1,15 +1,11 @@
 mod bank_metrics;
 pub mod banks_with_commitments;
 mod cluster_metrics;
-mod utils;
 
 use banks_with_commitments::BanksWithCommitments;
 use solana_gossip::cluster_info::ClusterInfo;
 use solana_sdk::pubkey::Pubkey;
 use std::{collections::HashSet, sync::Arc};
-
-#[derive(Clone, Copy)]
-pub struct Lamports(pub u64);
 
 pub fn render_prometheus(
     banks_with_commitments: BanksWithCommitments,
@@ -31,5 +27,9 @@ pub fn render_prometheus(
         &mut out,
     )
     .expect("IO error");
+    cluster_info
+        .stats
+        .write_prometheus(&mut out)
+        .expect("IO error");
     out
 }

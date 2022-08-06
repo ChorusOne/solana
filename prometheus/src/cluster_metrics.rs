@@ -1,13 +1,10 @@
 use solana_gossip::cluster_info::ClusterInfo;
+use solana_prometheus_utils::{write_metric, Lamports, Metric, MetricFamily};
 use solana_runtime::bank::Bank;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 use solana_vote_program::vote_state::VoteState;
 
-use crate::{
-    banks_with_commitments::BanksWithCommitments,
-    utils::{write_metric, Metric, MetricFamily},
-    Lamports,
-};
+use crate::banks_with_commitments::BanksWithCommitments;
 use std::{collections::HashSet, io, sync::Arc};
 
 struct ValidatorVoteInfo {

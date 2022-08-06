@@ -5358,6 +5358,8 @@ dependencies = [
  "solana-metrics",
  "solana-net-utils",
  "solana-perf",
+ "solana-prometheus-macro",
+ "solana-prometheus-utils",
  "solana-rayon-threadlimit",
  "solana-runtime",
  "solana-sdk 1.10.32",
@@ -5857,10 +5859,27 @@ version = "1.10.28"
 dependencies = [
  "jsonrpc-http-server",
  "solana-gossip",
+ "solana-prometheus-utils",
  "solana-runtime",
  "solana-sdk 1.10.32",
  "solana-vote-program",
 ]
+
+[[package]]
+name = "solana-prometheus-macro"
+version = "1.0.0"
+dependencies = [
+ "bs58",
+ "proc-macro2 1.0.32",
+ "quote 1.0.10",
+ "rustversion",
+ "solana-prometheus-utils",
+ "syn 1.0.91",
+]
+
+[[package]]
+name = "solana-prometheus-utils"
+version = "1.0.0"
 
 [[package]]
 name = "solana-rayon-threadlimit"
