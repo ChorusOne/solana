@@ -2528,7 +2528,7 @@ impl ClusterInfo {
         )?;
         if last_print.elapsed() > SUBMIT_GOSSIP_STATS_INTERVAL {
             // submit_gossip_stats(&self.stats, &self.gossip, &stakes);
-            *last_print = Instant::now();
+            // *last_print = Instant::now();
         }
         Ok(())
     }
