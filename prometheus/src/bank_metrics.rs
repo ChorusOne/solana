@@ -1,10 +1,8 @@
-use crate::{
-    banks_with_commitments::BanksWithCommitments,
-    utils::{write_metric, Metric, MetricFamily},
-};
-use std::io;
+use crate::banks_with_commitments::BanksWithCommitments;
+use solana_prometheus_utils::{write_metric, Metric, MetricFamily};
 use solana_sdk::sysvar;
 use solana_sdk::sysvar::epoch_schedule::EpochSchedule;
+use std::io;
 
 pub fn write_bank_metrics<W: io::Write>(
     banks_with_commitments: &BanksWithCommitments,

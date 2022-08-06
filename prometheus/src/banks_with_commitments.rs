@@ -1,8 +1,7 @@
 use std::sync::{Arc, RwLock};
 
+use solana_prometheus_utils::Metric;
 use solana_runtime::{bank::Bank, bank_forks::BankForks, commitment::BlockCommitmentCache};
-
-use crate::utils::Metric;
 
 pub struct BanksWithCommitments {
     pub finalized_bank: Arc<Bank>,

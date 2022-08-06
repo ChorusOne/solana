@@ -9,7 +9,8 @@ use std::io;
 use std::io::Write;
 use std::time::SystemTime;
 
-use crate::Lamports;
+#[derive(Clone, Copy)]
+pub struct Lamports(pub u64);
 
 pub struct MetricFamily<'a> {
     /// Name of the metric, e.g. [`goats_teleported_total`](https://crbug.com/31482).
@@ -81,6 +82,12 @@ impl<'a> Metric<'a> {
 
     pub fn with_label(mut self, label_key: &'a str, label_value: String) -> Metric<'a> {
         self.labels.push((label_key, label_value));
+        self
+    }
+
+    /// Set the suffix.
+    pub fn with_suffix(mut self, suffix: &'a str) -> Metric<'a> {
+        self.suffix = suffix;
         self
     }
 }

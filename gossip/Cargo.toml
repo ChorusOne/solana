@@ -46,6 +46,8 @@ solana-streamer = { path = "../streamer", version = "=1.10.32" }
 solana-version = { path = "../version", version = "=1.10.32" }
 solana-vote-program = { path = "../programs/vote", version = "=1.10.32" }
 thiserror = "1.0"
+solana-prometheus-macro = { path = "../prometheus/macros", version = "=1.0.0" }
+solana-prometheus-utils = { path = "../prometheus/utils", version = "=1.0.0" }
 
 [dev-dependencies]
 num_cpus = "1.13.1"
