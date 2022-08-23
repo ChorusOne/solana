@@ -5850,22 +5850,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "solana-prometheus"
-version = "1.10.28"
-dependencies = [
- "bincode",
- "jsonrpc-http-server",
- "serde",
- "serde_json",
- "solana-account-decoder",
- "solana-config-program",
- "solana-gossip",
- "solana-runtime",
- "solana-sdk 1.10.32",
- "solana-vote-program",
-]
-
-[[package]]
 name = "solana-rayon-threadlimit"
 version = "1.14.16"
 dependencies = [
@@ -5927,7 +5911,6 @@ dependencies = [
  "solana-net-utils",
  "solana-perf",
  "solana-poh",
- "solana-prometheus",
  "solana-rayon-threadlimit",
  "solana-runtime",
  "solana-sdk 1.14.16",
