@@ -690,6 +690,7 @@ impl TestValidator {
                 ),
             )),
             rpc_config: config.rpc_config.clone(),
+            vote_accounts_to_monitor: Arc::new(HashSet::from_iter(vec![vote_account_address])),
             pubsub_config: config.pubsub_config.clone(),
             accounts_hash_interval_slots: 100,
             account_paths: vec![ledger_path.join("accounts")],
@@ -709,7 +710,6 @@ impl TestValidator {
             max_ledger_shreds: config.max_ledger_shreds,
             no_wait_for_vote_to_start_leader: true,
             accounts_db_config,
-            vote_accounts_to_monitor: Arc::new(HashSet::from_iter(vec![vote_account_address])),
             ..ValidatorConfig::default_for_test()
         };
         if let Some(ref tower_storage) = config.tower_storage {
