@@ -1,6 +1,7 @@
 //! The `streamer` module defines a set of services for efficiently pulling data from UDP sockets.
 //!
 
+use std::sync::Mutex;
 use {
     crate::{
         packet::{self, PacketBatch, PacketBatchRecycler, PACKETS_PER_BATCH},
@@ -56,7 +57,28 @@ pub struct StreamerReceiveStats {
     pub packet_batches_count: AtomicUsize,
     pub full_packet_batches_count: AtomicUsize,
     pub max_channel_len: AtomicUsize,
+    pub total_stats: Arc<Mutex<StreamerReceiveStatsTotal>>,
 }
+
+#[derive(Default, Clone)]
+pub struct StreamerReceiveStatsTotal {
+    pub packets_count_total: usize,
+    pub packet_batches_count_total: usize,
+    pub full_packet_batches_count_total: usize,
+    pub max_channel_len_total: usize,
+}
+
+impl StreamerReceiveStatsTotal {
+    pub fn new() -> Self {
+        Self{
+            packets_count_total: Default::default(),
+            packet_batches_count_total: Default::default(),
+            full_packet_batches_count_total: Default::default(),
+            max_channel_len_total: Default::default()
+        }
+    }
+}
+
 
 impl StreamerReceiveStats {
     pub fn new(name: &'static str) -> Self {
@@ -66,30 +88,44 @@ impl StreamerReceiveStats {
             packet_batches_count: AtomicUsize::default(),
             full_packet_batches_count: AtomicUsize::default(),
             max_channel_len: AtomicUsize::default(),
+            total_stats: Arc::new(Mutex::new(StreamerReceiveStatsTotal::default())),
         }
     }
 
     pub fn report(&self) {
+        let packets_count = self.packets_count.swap(0, Ordering::Relaxed);
+        let packet_batches_count = self.packets_count.swap(0, Ordering::Relaxed);
+        let full_packet_batches_count = self.packets_count.swap(0, Ordering::Relaxed);
+        let max_channel_len = self.packets_count.swap(0, Ordering::Relaxed);
+
+        {
+            let mut stats = self.total_stats.lock().unwrap();
+            stats.packets_count_total += packets_count;
+            stats.packet_batches_count_total += packet_batches_count;
+            stats.full_packet_batches_count_total += full_packet_batches_count;
+            stats.max_channel_len_total += max_channel_len;
+        }
+
         datapoint_info!(
             self.name,
             (
                 "packets_count",
-                self.packets_count.swap(0, Ordering::Relaxed) as i64,
+                packets_count as i64,
                 i64
             ),
             (
                 "packet_batches_count",
-                self.packet_batches_count.swap(0, Ordering::Relaxed) as i64,
+                packet_batches_count as i64,
                 i64
             ),
             (
                 "full_packet_batches_count",
-                self.full_packet_batches_count.swap(0, Ordering::Relaxed) as i64,
+                full_packet_batches_count as i64,
                 i64
             ),
             (
                 "channel_len",
-                self.max_channel_len.swap(0, Ordering::Relaxed) as i64,
+                max_channel_len as i64,
                 i64
             ),
         );
@@ -451,6 +487,7 @@ mod test {
         write!(io::sink(), "{:?}", Packet::default()).unwrap();
         write!(io::sink(), "{:?}", PacketBatch::default()).unwrap();
     }
+
     #[test]
     fn streamer_send_test() {
         let read = UdpSocket::bind("127.0.0.1:0").expect("bind");

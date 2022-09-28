@@ -41,6 +41,7 @@ use {
         time::Duration,
     },
 };
+use solana_prometheus::collector::PrometheusCollector;
 
 pub const DEFAULT_TPU_COALESCE_MS: u64 = 5;
 
@@ -99,6 +100,7 @@ impl Tpu {
         cost_model: &Arc<RwLock<CostModel>>,
         connection_cache: &Arc<ConnectionCache>,
         keypair: &Keypair,
+        prometheus_collector: Option<PrometheusCollector>,
         enable_quic_servers: bool,
     ) -> Self {
         let TpuSockets {
@@ -124,6 +126,7 @@ impl Tpu {
             forwarded_packet_receiver,
             poh_recorder,
             tpu_coalesce_ms,
+            prometheus_collector,
             Some(bank_forks.read().unwrap().get_vote_only_mode_signal()),
         );
 

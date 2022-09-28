@@ -109,6 +109,7 @@ use {
         time::{Duration, Instant},
     },
 };
+use solana_prometheus::collector::PrometheusCollector;
 
 const MAX_COMPLETED_DATA_SETS_IN_CHANNEL: usize = 100_000;
 const WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT: u64 = 80;
@@ -379,6 +380,7 @@ impl Validator {
         socket_addr_space: SocketAddrSpace,
         use_quic: bool,
         tpu_connection_pool_size: usize,
+        prometheus_collector: Option<PrometheusCollector>,
     ) -> Self {
         let id = identity_keypair.pubkey();
         assert_eq!(id, node.info.id);
@@ -740,6 +742,7 @@ impl Validator {
                     connection_cache.clone(),
                     max_complete_transaction_status_slot,
                     config.vote_accounts_to_monitor.clone(),
+                    prometheus_collector.clone(),
                 )),
                 if !config.rpc_config.full_api {
                     None
@@ -996,6 +999,7 @@ impl Validator {
             &cost_model,
             &connection_cache,
             &identity_keypair,
+            prometheus_collector,
             config.enable_quic_servers,
         );
 

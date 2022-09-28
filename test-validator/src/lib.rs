@@ -729,6 +729,7 @@ impl TestValidator {
             socket_addr_space,
             DEFAULT_TPU_USE_QUIC,
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            None,
         ));
 
         // Needed to avoid panics in `solana-responder-gossip` in tests that create a number of

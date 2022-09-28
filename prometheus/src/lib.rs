@@ -1,10 +1,12 @@
 mod bank_metrics;
 pub mod banks_with_commitments;
 mod cluster_metrics;
+pub mod collector;
 pub mod identity_info;
 mod snapshot_metrics;
 mod utils;
 
+use crate::collector::PrometheusCollector;
 use banks_with_commitments::BanksWithCommitments;
 use identity_info::IdentityInfoMap;
 use solana_gossip::cluster_info::ClusterInfo;
@@ -21,6 +23,7 @@ pub fn render_prometheus(
     vote_accounts: &Arc<HashSet<Pubkey>>,
     identity_config: &Arc<IdentityInfoMap>,
     snapshot_config: &Option<SnapshotConfig>,
+    collector: &Option<PrometheusCollector>,
 ) -> Vec<u8> {
     // There are 3 levels of commitment for a bank:
     // - finalized: most recent block *confirmed* by supermajority of the
@@ -41,5 +44,14 @@ pub fn render_prometheus(
     if let Some(snapshot_config) = snapshot_config {
         snapshot_metrics::write_snapshot_metrics(snapshot_config, &mut out).expect("IO error");
     }
+
+    if let Some(collector) = collector {
+        collector
+            .lock()
+            .unwrap()
+            .write_metrics(&mut out)
+            .expect("IO error");
+    }
+
     out
 }

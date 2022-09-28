@@ -59,6 +59,7 @@ solana-streamer = { path = "../streamer", version = "=1.10.39" }
 solana-transaction-status = { path = "../transaction-status", version = "=1.10.39" }
 solana-version = { path = "../version", version = "=1.10.39" }
 solana-vote-program = { path = "../programs/vote", version = "=1.10.39" }
+solana-prometheus = { path = "../prometheus" }
 sys-info = "0.9.1"
 tempfile = "3.3.0"
 thiserror = "1.0"

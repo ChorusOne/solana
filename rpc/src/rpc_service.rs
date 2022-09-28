@@ -56,6 +56,7 @@ use {
     },
     tokio_util::codec::{BytesCodec, FramedRead},
 };
+use solana_prometheus::collector::PrometheusCollector;
 
 const FULL_SNAPSHOT_REQUEST_PATH: &str = "/snapshot.tar.bz2";
 const INCREMENTAL_SNAPSHOT_REQUEST_PATH: &str = "/incremental-snapshot.tar.bz2";
@@ -82,6 +83,7 @@ struct RpcRequestMiddleware {
     /// Initialized based on vote_accounts_to_monitor, maps identity
     /// pubkey associated with the vote account to the validator info.
     identity_info_map: Arc<IdentityInfoMap>,
+    prometheus_collector: Option<PrometheusCollector>,
 }
 
 impl RpcRequestMiddleware {
@@ -92,6 +94,7 @@ impl RpcRequestMiddleware {
         health: Arc<RpcHealth>,
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+        prometheus_collector: Option<PrometheusCollector>,
     ) -> Self {
         Self {
             ledger_path,
@@ -112,6 +115,7 @@ impl RpcRequestMiddleware {
             health,
             block_commitment_cache,
             vote_accounts_to_monitor,
+            prometheus_collector,
         }
     }
 
@@ -319,6 +323,7 @@ impl RequestMiddleware for RpcRequestMiddleware {
                             &self.vote_accounts_to_monitor,
                             &self.identity_info_map,
                             &self.snapshot_config,
+                            &self.prometheus_collector,
                         )))
                         .unwrap()
                         .into()
@@ -375,6 +380,7 @@ impl JsonRpcService {
         connection_cache: Arc<ConnectionCache>,
         current_transaction_status_slot: Arc<AtomicU64>,
         vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+        prometheus_collector: Option<PrometheusCollector>,
     ) -> Self {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -524,6 +530,7 @@ impl JsonRpcService {
                     health.clone(),
                     block_commitment_cache.clone(),
                     vote_accounts_to_monitor,
+                    prometheus_collector,
                 );
                 let server = ServerBuilder::with_meta_extractor(
                     io,
