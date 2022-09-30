@@ -94,9 +94,9 @@ impl StreamerReceiveStats {
 
     pub fn report(&self) {
         let packets_count = self.packets_count.swap(0, Ordering::Relaxed);
-        let packet_batches_count = self.packets_count.swap(0, Ordering::Relaxed);
-        let full_packet_batches_count = self.packets_count.swap(0, Ordering::Relaxed);
-        let max_channel_len = self.packets_count.swap(0, Ordering::Relaxed);
+        let packet_batches_count = self.packet_batches_count.swap(0, Ordering::Relaxed);
+        let full_packet_batches_count = self.full_packet_batches_count.swap(0, Ordering::Relaxed);
+        let max_channel_len = self.max_channel_len.swap(0, Ordering::Relaxed);
 
         {
             let mut stats = self.total_stats.lock().unwrap();
