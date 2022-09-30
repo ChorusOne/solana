@@ -1,4 +1,6 @@
 #![allow(clippy::integer_arithmetic)]
+
+use std::sync::Mutex;
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
 use {
@@ -88,6 +90,7 @@ use {
         time::{Duration, SystemTime},
     },
 };
+use solana_prometheus::collector::MetricsCollector;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -2621,6 +2624,9 @@ pub fn main() {
 
     validator_config.vote_accounts_to_monitor = Arc::new(get_vote_accounts_to_monitor(&matches));
 
+    // TODO: create collector only if prometheus metrics are enabled
+    let prometheus_collector = Some(Arc::new(Mutex::new(MetricsCollector::new())));
+
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
             .expect("invalid dynamic_port_range");
@@ -2997,6 +3003,7 @@ pub fn main() {
         socket_addr_space,
         tpu_use_quic,
         tpu_connection_pool_size,
+        prometheus_collector,
     );
     *admin_service_post_init.write().unwrap() =
         Some(admin_rpc_service::AdminRpcRequestMetadataPostInit {

@@ -63,6 +63,9 @@ pub struct ReplicaNodeConfig {
     pub replica_exit: Arc<RwLock<Exit>>,
     pub socket_addr_space: SocketAddrSpace,
     pub vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+    // TODO: for now it does not makes sense to pass it to RPC as we
+    // only get TPU metrics.
+    // pub prometheus_collector: PrometheusCollector,
 }
 
 pub struct ReplicaNode {
@@ -257,6 +260,8 @@ fn start_client_rpc_services(
             connection_cache,
             max_complete_transaction_status_slot,
             replica_config.vote_accounts_to_monitor.clone(),
+            // replica_config.prometheus_collector.clone(),
+            None,
         )),
         Some(pubsub_service),
         Some(OptimisticallyConfirmedBankTracker::new(

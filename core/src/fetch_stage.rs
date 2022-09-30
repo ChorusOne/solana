@@ -26,6 +26,7 @@ use {
         time::Duration,
     },
 };
+use solana_prometheus::collector::{PrometheusCollector};
 
 pub struct FetchStage {
     thread_hdls: Vec<JoinHandle<()>>,
@@ -39,6 +40,7 @@ impl FetchStage {
         tpu_vote_sockets: Vec<UdpSocket>,
         exit: &Arc<AtomicBool>,
         poh_recorder: &Arc<Mutex<PohRecorder>>,
+        prometheus_collector: Option<PrometheusCollector>,
         coalesce_ms: u64,
     ) -> (Self, PacketBatchReceiver, PacketBatchReceiver) {
         let (sender, receiver) = unbounded();
@@ -56,6 +58,7 @@ impl FetchStage {
                 forward_receiver,
                 poh_recorder,
                 coalesce_ms,
+                prometheus_collector,
                 None,
             ),
             receiver,
@@ -75,6 +78,7 @@ impl FetchStage {
         forward_receiver: PacketBatchReceiver,
         poh_recorder: &Arc<Mutex<PohRecorder>>,
         coalesce_ms: u64,
+        prometheus_collector: Option<PrometheusCollector>,
         in_vote_only_mode: Option<Arc<AtomicBool>>,
     ) -> Self {
         let tx_sockets = sockets.into_iter().map(Arc::new).collect();
@@ -91,6 +95,7 @@ impl FetchStage {
             forward_receiver,
             poh_recorder,
             coalesce_ms,
+            prometheus_collector,
             in_vote_only_mode,
         )
     }
@@ -149,6 +154,7 @@ impl FetchStage {
         forward_receiver: PacketBatchReceiver,
         poh_recorder: &Arc<Mutex<PohRecorder>>,
         coalesce_ms: u64,
+        prometheus_collector: Option<PrometheusCollector>,
         in_vote_only_mode: Option<Arc<AtomicBool>>,
     ) -> Self {
         let recycler: PacketBatchRecycler = Recycler::warmed(1000, 1024);
@@ -233,6 +239,13 @@ impl FetchStage {
                 tpu_stats.report();
                 tpu_vote_stats.report();
                 tpu_forward_stats.report();
+
+                if let Some(collector) = &prometheus_collector {
+                    let stats = {
+                        tpu_stats.total_stats.lock().unwrap().clone()
+                    };
+                    collector.lock().unwrap().save_tpu_receiver_stats(stats)
+                }
 
                 if exit.load(Ordering::Relaxed) {
                     return;

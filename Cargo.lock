@@ -5089,6 +5089,7 @@ dependencies = [
  "solana-perf",
  "solana-poh",
  "solana-program-runtime",
+ "solana-prometheus",
  "solana-rayon-threadlimit",
  "solana-replica-lib",
  "solana-rpc",
@@ -5868,6 +5869,7 @@ dependencies = [
  "solana-gossip",
  "solana-runtime",
  "solana-sdk 1.10.39",
+ "solana-streamer",
  "solana-vote-program",
 ]
 
@@ -6516,6 +6518,7 @@ dependencies = [
  "solana-net-utils",
  "solana-perf",
  "solana-poh",
+ "solana-prometheus",
  "solana-replica-lib",
  "solana-rpc",
  "solana-runtime",
