@@ -30,6 +30,7 @@ use {
     },
     solana_streamer::socket::SocketAddrSpace,
     std::{
+        collections::HashSet,
         net::{IpAddr, Ipv4Addr, SocketAddr},
         path::{Path, PathBuf},
         sync::{Arc, RwLock},
@@ -294,6 +295,8 @@ fn test_replica_bootstrap() {
         account_indexes: AccountSecondaryIndexes::default(),
         accounts_db_caching_enabled: false,
         replica_exit: Arc::new(RwLock::new(Exit::default())),
+        vote_accounts_to_monitor: Arc::new(HashSet::default()),
+        rpc_enable_prometheus_metrics: false,
     };
     let _replica_node = ReplicaNode::new(config);
 }
