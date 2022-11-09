@@ -94,6 +94,11 @@ impl<'a> Metric<'a> {
             None => self,
         }
     }
+
+    pub fn with_suffix(mut self, suffix: &'a str) -> Metric<'a> {
+        self.suffix = suffix;
+        self
+    }
 }
 
 pub fn write_metric<W: Write>(out: &mut W, family: &MetricFamily) -> io::Result<()> {
