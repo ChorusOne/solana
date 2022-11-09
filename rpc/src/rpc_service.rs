@@ -80,6 +80,7 @@ struct RpcRequestMiddleware {
     health: Arc<RpcHealth>,
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
     vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+    enable_prometheus_metrics: bool,
     /// Initialized based on vote_accounts_to_monitor, maps identity
     /// pubkey associated with the vote account to the validator info.
     identity_info_map: Arc<IdentityInfoMap>,
@@ -93,6 +94,7 @@ impl RpcRequestMiddleware {
         health: Arc<RpcHealth>,
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+        enable_prometheus_metrics: bool,
     ) -> Self {
         Self {
             ledger_path,
@@ -113,6 +115,7 @@ impl RpcRequestMiddleware {
             health,
             block_commitment_cache,
             vote_accounts_to_monitor,
+            enable_prometheus_metrics,
         }
     }
 
@@ -325,7 +328,7 @@ impl RequestMiddleware for RpcRequestMiddleware {
                     .body(hyper::Body::from(self.health_check()))
                     .unwrap()
                     .into(),
-                "/metrics" => {
+                "/metrics" if self.enable_prometheus_metrics => {
                     let banks_with_commitment =
                         BanksWithCommitments::new(&self.bank_forks, &self.block_commitment_cache);
                     hyper::Response::builder()
@@ -386,6 +389,7 @@ impl JsonRpcService {
         validator_exit: Arc<RwLock<Exit>>,
         known_validators: Option<HashSet<Pubkey>>,
         override_health_check: Arc<AtomicBool>,
+        enable_prometheus_metrics: bool,
         startup_verification_complete: Arc<AtomicBool>,
         optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
         send_transaction_service_config: send_transaction_service::Config,
@@ -546,6 +550,7 @@ impl JsonRpcService {
                     health.clone(),
                     block_commitment_cache.clone(),
                     vote_accounts_to_monitor,
+                    enable_prometheus_metrics,
                 );
                 let server = ServerBuilder::with_meta_extractor(
                     io,
@@ -673,6 +678,7 @@ mod tests {
             validator_exit,
             None,
             Arc::new(AtomicBool::new(false)),
+            false,
             Arc::new(AtomicBool::new(true)),
             optimistically_confirmed_bank,
             send_transaction_service::Config {
@@ -762,6 +768,7 @@ mod tests {
             RpcHealth::stub(),
             block_commitment_cache,
             None,
+            false,
         );
         let rrm_with_snapshot_config = RpcRequestMiddleware::new(
             PathBuf::from("/"),
@@ -770,6 +777,7 @@ mod tests {
             RpcHealth::stub(),
             block_commitment_cache,
             None,
+            false,
         );
 
         assert!(rrm.is_file_get_path(DEFAULT_GENESIS_DOWNLOAD_PATH));
@@ -870,6 +878,7 @@ mod tests {
             RpcHealth::stub(),
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
             None,
+            false,
         );
 
         // File does not exist => request should fail.
@@ -927,6 +936,7 @@ mod tests {
             RpcHealth::stub(),
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
             None,
+            false,
         );
         assert_eq!(rm.health_check(), "ok");
     }
@@ -962,6 +972,7 @@ mod tests {
             health,
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
             None,
+            false,
         );
 
         // No account hashes for this node or any known validators
