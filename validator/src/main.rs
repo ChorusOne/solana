@@ -1446,6 +1446,12 @@ pub fn main() {
                 .help("Verifies blockstore roots on boot and fixes any gaps"),
         )
         .arg(
+            Arg::with_name("enable_prometheus_metrics")
+                .long("enable-prometheus-metrics")
+                .takes_value(false)
+                .help("Expose prometheus on RPC endpoint /metrics")
+        )
+        .arg(
             Arg::with_name("enable_accountsdb_repl")
                 .long("enable-accountsdb-repl")
                 .takes_value(false)
@@ -2529,6 +2535,7 @@ pub fn main() {
             rpc_niceness_adj: value_t_or_exit!(matches, "rpc_niceness_adj", i8),
             account_indexes: account_indexes.clone(),
             rpc_scan_and_fix_roots: matches.is_present("rpc_scan_and_fix_roots"),
+            rpc_enable_prometheus_metrics: matches.is_present("enable_prometheus_metrics"),
         },
         accountsdb_repl_service_config,
         geyser_plugin_config_files,

@@ -167,6 +167,12 @@ pub fn main() {
                 .help("Require the shred version be this value"),
         )
         .arg(
+            Arg::with_name("enable_prometheus_metrics")
+                .long("enable-prometheus-metrics")
+                .takes_value(false)
+                .help("Expose prometheus on RPC endpoint /metrics")
+        )
+        .arg(
             Arg::with_name("logfile")
                 .short("o")
                 .long("log")
@@ -278,6 +284,8 @@ pub fn main() {
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
             .expect("invalid dynamic_port_range");
+
+    let rpc_enable_prometheus_metrics = matches.is_present("enable_prometheus_metrics");
 
     let cluster_entrypoints = entrypoint_addrs
         .iter()
@@ -402,6 +410,7 @@ pub fn main() {
         accounts_db_caching_enabled: false,
         replica_exit: Arc::new(RwLock::new(Exit::default())),
         vote_accounts_to_monitor: Arc::new(HashSet::default()),
+        rpc_enable_prometheus_metrics,
     };
 
     let replica = ReplicaNode::new(config);

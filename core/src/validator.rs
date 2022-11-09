@@ -687,6 +687,7 @@ impl Validator {
         };
 
         let rpc_override_health_check = Arc::new(AtomicBool::new(false));
+        let rpc_enable_prometheus_metrics = config.rpc_config.rpc_enable_prometheus_metrics;
         let (
             json_rpc_service,
             pubsub_service,
@@ -734,6 +735,7 @@ impl Validator {
                     config.validator_exit.clone(),
                     config.known_validators.clone(),
                     rpc_override_health_check.clone(),
+                    rpc_enable_prometheus_metrics,
                     optimistically_confirmed_bank.clone(),
                     config.send_transaction_service_config.clone(),
                     max_slots.clone(),

@@ -63,6 +63,7 @@ pub struct ReplicaNodeConfig {
     pub replica_exit: Arc<RwLock<Exit>>,
     pub socket_addr_space: SocketAddrSpace,
     pub vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+    pub rpc_enable_prometheus_metrics: bool,
 }
 
 pub struct ReplicaNode {
@@ -206,6 +207,7 @@ fn start_client_rpc_services(
     ));
 
     let rpc_override_health_check = Arc::new(AtomicBool::new(false));
+    let rpc_enable_prometheus_metrics = replica_config.rpc_enable_prometheus_metrics;
     if ContactInfo::is_valid_address(&replica_config.rpc_addr, socket_addr_space) {
         assert!(ContactInfo::is_valid_address(
             &replica_config.rpc_pubsub_addr,
@@ -246,6 +248,7 @@ fn start_client_rpc_services(
             replica_config.replica_exit.clone(),
             None,
             rpc_override_health_check,
+            rpc_enable_prometheus_metrics,
             optimistically_confirmed_bank.clone(),
             send_transaction_service::Config {
                 retry_rate_ms: 0,
