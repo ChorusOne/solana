@@ -691,7 +691,7 @@ mod tests {
             connection_cache,
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
-            None,
+            Arc::new(HashSet::default()),
         );
         let thread = rpc_service.thread_hdl.thread();
         assert_eq!(thread.name().unwrap(), "solJsonRpcSvc");
@@ -766,8 +766,8 @@ mod tests {
             None,
             bank_forks.clone(),
             RpcHealth::stub(),
-            block_commitment_cache,
-            None,
+            block_commitment_cache.clone(),
+            Arc::new(HashSet::default()),
             false,
         );
         let rrm_with_snapshot_config = RpcRequestMiddleware::new(
@@ -776,7 +776,7 @@ mod tests {
             bank_forks,
             RpcHealth::stub(),
             block_commitment_cache,
-            None,
+            Arc::new(HashSet::default()),
             false,
         );
 
@@ -877,7 +877,7 @@ mod tests {
             create_bank_forks(),
             RpcHealth::stub(),
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
-            None,
+            Arc::new(HashSet::default()),
             false,
         );
 
@@ -935,7 +935,7 @@ mod tests {
             create_bank_forks(),
             RpcHealth::stub(),
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
-            None,
+            Arc::new(HashSet::default()),
             false,
         );
         assert_eq!(rm.health_check(), "ok");
@@ -971,7 +971,7 @@ mod tests {
             create_bank_forks(),
             health,
             Arc::new(RwLock::new(BlockCommitmentCache::default())),
-            None,
+            Arc::new(HashSet::default()),
             false,
         );
 
