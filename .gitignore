@@ -1,4 +1,5 @@
 Cargo.lock
+.github/workflows
 
 /dos/farf/
 /farf/
