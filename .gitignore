@@ -1,3 +1,5 @@
+.github/workflows/
+
 farf/
 target/
 /solana-release/
