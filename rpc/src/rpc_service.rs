@@ -1,6 +1,6 @@
 //! The `rpc_service` module implements the Solana JSON RPC service.
 
-use solana_prometheus::identity_info::map_vote_identity_to_info;
+use solana_prometheus::PrometheusMetrics;
 use {
     crate::{
         cluster_tpu_info::ClusterTpuInfo,
@@ -31,10 +31,6 @@ use {
     solana_metrics::inc_new_counter_info,
     solana_perf::thread::renice_this_thread,
     solana_poh::poh_recorder::PohRecorder,
-    solana_prometheus::{
-        banks_with_commitments::BanksWithCommitments, identity_info::IdentityInfoMap,
-        render_prometheus,
-    },
     solana_runtime::{
         bank_forks::BankForks, commitment::BlockCommitmentCache,
         prioritization_fee_cache::PrioritizationFeeCache,
@@ -43,8 +39,7 @@ use {
     },
     solana_sdk::{
         exit::Exit, genesis_config::DEFAULT_GENESIS_DOWNLOAD_PATH, hash::Hash,
-        native_token::lamports_to_sol,
-        pubkey::Pubkey,
+        native_token::lamports_to_sol, pubkey::Pubkey,
     },
     solana_send_transaction_service::send_transaction_service::{self, SendTransactionService},
     solana_storage_bigtable::CredentialType,
@@ -81,13 +76,7 @@ struct RpcRequestMiddleware {
     snapshot_config: Option<SnapshotConfig>,
     bank_forks: Arc<RwLock<BankForks>>,
     health: Arc<RpcHealth>,
-    cluster_info: Arc<ClusterInfo>,
-    block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
-    vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
-    enable_prometheus_metrics: bool,
-    /// Initialized based on vote_accounts_to_monitor, maps identity
-    /// pubkey associated with the vote account to the validator info.
-    identity_info_map: Arc<IdentityInfoMap>,
+    prometheus_metrics: Option<Arc<PrometheusMetrics>>,
 }
 
 impl RpcRequestMiddleware {
@@ -96,10 +85,7 @@ impl RpcRequestMiddleware {
         snapshot_config: Option<SnapshotConfig>,
         bank_forks: Arc<RwLock<BankForks>>,
         health: Arc<RpcHealth>,
-        cluster_info: Arc<ClusterInfo>,
-        block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
-        vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
-        enable_prometheus_metrics: bool,
+        prometheus_metrics: Option<Arc<PrometheusMetrics>>,
     ) -> Self {
         Self {
             ledger_path,
@@ -112,16 +98,9 @@ impl RpcRequestMiddleware {
             )
             .unwrap(),
             snapshot_config,
-            identity_info_map: Arc::new(map_vote_identity_to_info(
-                &bank_forks,
-                &vote_accounts_to_monitor,
-            )),
             bank_forks,
             health,
-            cluster_info,
-            block_commitment_cache,
-            vote_accounts_to_monitor,
-            enable_prometheus_metrics,
+            prometheus_metrics,
         }
     }
 
@@ -333,19 +312,12 @@ impl RequestMiddleware for RpcRequestMiddleware {
                     .body(hyper::Body::from(self.health_check()))
                     .unwrap()
                     .into(),
-                "/metrics" if self.enable_prometheus_metrics => {
-                    let banks_with_commitment =
-                        BanksWithCommitments::new(&self.bank_forks, &self.block_commitment_cache);
+                "/metrics" if self.prometheus_metrics.is_some() => {
+                    let prometheus_metrics = self.prometheus_metrics.as_ref().unwrap();
                     hyper::Response::builder()
                         .status(hyper::StatusCode::OK)
                         .header("Content-Type", "text/plain; version=0.0.4; charset=UTF-8")
-                        .body(hyper::Body::from(render_prometheus(
-                            banks_with_commitment,
-                            &self.cluster_info,
-                            &self.vote_accounts_to_monitor,
-                            &self.identity_info_map,
-                            &self.snapshot_config,
-                        )))
+                        .body(hyper::Body::from(prometheus_metrics.render_prometheus()))
                         .unwrap()
                         .into()
                 }
@@ -562,15 +534,24 @@ impl JsonRpcService {
                     io.extend_with(rpc_obsolete_v1_7::ObsoleteV1_7Impl.to_delegate());
                 }
 
+                let prometheus_metrics = if enable_prometheus_metrics {
+                    Some(PrometheusMetrics::new(
+                        bank_forks.clone(),
+                        block_commitment_cache.clone(),
+                        cluster_info.clone(),
+                        vote_accounts_to_monitor.clone(),
+                        snapshot_config.clone(),
+                    ))
+                } else {
+                    None
+                };
+
                 let request_middleware = RpcRequestMiddleware::new(
                     ledger_path,
                     snapshot_config,
                     bank_forks.clone(),
                     health.clone(),
-                    cluster_info,
-                    block_commitment_cache.clone(),
-                    vote_accounts_to_monitor,
-                    enable_prometheus_metrics,
+                    prometheus_metrics,
                 );
                 let server = ServerBuilder::with_meta_extractor(
                     io,
@@ -782,24 +763,19 @@ mod tests {
         let health = RpcHealth::stub(optimistically_confirmed_bank, blockstore);
 
         let bank_forks = create_bank_forks();
-        let block_commitment_cache = Arc::new(RwLock::new(BlockCommitmentCache::default()));
         let rrm = RpcRequestMiddleware::new(
             ledger_path.path().to_path_buf(),
             None,
             bank_forks.clone(),
             health.clone(),
-            block_commitment_cache.clone(),
-            Arc::new(HashSet::default()),
-            false,
+            None,
         );
         let rrm_with_snapshot_config = RpcRequestMiddleware::new(
             ledger_path.path().to_path_buf(),
             Some(SnapshotConfig::default()),
             bank_forks,
             health,
-            block_commitment_cache,
-            Arc::new(HashSet::default()),
-            false,
+            None,
         );
 
         assert!(rrm.is_file_get_path(DEFAULT_GENESIS_DOWNLOAD_PATH));
@@ -902,9 +878,7 @@ mod tests {
             None,
             bank_forks,
             RpcHealth::stub(optimistically_confirmed_bank, blockstore),
-            Arc::new(RwLock::new(BlockCommitmentCache::default())),
-            Arc::new(HashSet::default()),
-            false,
+            None,
         );
 
         // File does not exist => request should fail.

@@ -23,7 +23,7 @@ struct ValidatorVoteInfo {
 fn get_vote_state(
     bank: &Bank,
     vote_pubkey: &Pubkey,
-    identity_info: &Arc<IdentityInfoMap>,
+    identity_info: &IdentityInfoMap,
 ) -> Option<ValidatorVoteInfo> {
     let default_vote_state = VoteState::default();
     let vote_accounts = bank.vote_accounts();
@@ -48,11 +48,9 @@ fn get_vote_state(
     })
 }
 
-pub fn write_cluster_metrics<W: io::Write>(
+pub fn write_node_metrics<W: io::Write>(
     banks_with_commitments: &BanksWithCommitments,
     cluster_info: &Arc<ClusterInfo>,
-    vote_accounts: &Arc<HashSet<Pubkey>>,
-    identity_info: &Arc<IdentityInfoMap>,
     out: &mut W,
 ) -> io::Result<()> {
     let identity_pubkey = cluster_info.id();
@@ -97,6 +95,15 @@ pub fn write_cluster_metrics<W: io::Write>(
         },
     )?;
 
+    Ok(())
+}
+
+pub fn write_accounts_metrics<W: io::Write>(
+    banks_with_commitments: &BanksWithCommitments,
+    vote_accounts: &Arc<HashSet<Pubkey>>,
+    identity_info: &IdentityInfoMap,
+    out: &mut W,
+) -> io::Result<()> {
     // Vote accounts information
     for vote_account in vote_accounts.iter() {
         write_metric(
