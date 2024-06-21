@@ -19,6 +19,7 @@ solana-config-program = { path = "../programs/config" }
 bincode = "1.3.3"
 solana-account-decoder = { path = "../account-decoder" }
 solana-accounts-db = { path = "../accounts-db" }
+log = { workspace = true }
 
 [lib]
 crate-type = ["lib"]

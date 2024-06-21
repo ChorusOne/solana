@@ -12,6 +12,7 @@ use solana_sdk::transaction_context::TransactionAccount;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::{collections::HashSet, sync::Arc};
+use log::info;
 
 /// ValidatorInfo represents selected fields from the config account data.
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
@@ -27,15 +28,19 @@ pub fn map_vote_identity_to_info(
 ) -> IdentityInfoMap {
     use solana_sdk::config::program as config_program;
 
+    info!("map_vote_identity_to_info: reading bank...");
     let bank = bank_forks.read().unwrap().working_bank();
 
+    info!("map_vote_identity_to_info: starting to get all accounts...");
     let all_accounts = bank
         .get_program_accounts(&config_program::id(), &ScanConfig::default())
         .expect("failed to get program accounts");
 
+    info!("map_vote_identity_to_info: reading vote accounts...");
     let default_vote_state = VoteState::default();
     let vote_accounts = bank.vote_accounts();
 
+    info!("map_vote_identity_to_info: matching votes to identities...");
     let identities: HashSet<Pubkey> = vote_pubkeys
         .iter()
         .filter_map(|vote_pubkey| {
@@ -47,6 +52,7 @@ pub fn map_vote_identity_to_info(
         })
         .collect();
 
+    info!("map_vote_identity_to_info: getting validator info...");
     get_identity_validator_info(&all_accounts, &identities)
 }
 

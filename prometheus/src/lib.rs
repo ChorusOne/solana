@@ -17,6 +17,7 @@ use std::{
     sync::{Arc, RwLock},
     thread,
 };
+use log::info;
 
 #[derive(Clone, Copy)]
 pub struct Lamports(pub u64);
@@ -55,8 +56,10 @@ impl PrometheusMetrics {
 
         let prom_metrics_clone = prom_metrics.clone();
         thread::spawn(move || {
+            info!("Initializing identity info map...");
             // TODO: This can panic, we should handle it better
             let identity_info_map = map_vote_identity_to_info(&bank_forks, &vote_accounts);
+            info!("Identity info map initialized. Enabling accounts metrics...");
             prom_metrics_clone
                 .identity_info_map
                 .write()
