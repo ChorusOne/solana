@@ -1553,6 +1553,9 @@ pub fn main() {
     });
 
     validator_config.vote_accounts_to_monitor = Arc::new(get_vote_accounts_to_monitor(&matches));
+    validator_config.monitor_identity_accounts_info_path = matches
+        .value_of("monitor_identity_accounts_info_path")
+        .map(|path| PathBuf::from(path));
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())

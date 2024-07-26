@@ -23,8 +23,13 @@ struct ValidatorVoteInfo {
 fn get_vote_state(
     bank: &Bank,
     vote_pubkey: &Pubkey,
-    identity_info: &IdentityInfoMap,
+    identity_info: &Option<IdentityInfoMap>,
 ) -> Option<ValidatorVoteInfo> {
+    if identity_info.is_none() {
+        return None;
+    }
+    let identity_info = identity_info.as_ref().unwrap();
+
     let default_vote_state = VoteState::default();
     let vote_accounts = bank.vote_accounts();
     let (activated_stake, vote_account) = vote_accounts.get(vote_pubkey)?;
@@ -101,7 +106,7 @@ pub fn write_node_metrics<W: io::Write>(
 pub fn write_accounts_metrics<W: io::Write>(
     banks_with_commitments: &BanksWithCommitments,
     vote_accounts: &Arc<HashSet<Pubkey>>,
-    identity_info: &IdentityInfoMap,
+    identity_info: &Option<IdentityInfoMap>,
     out: &mut W,
 ) -> io::Result<()> {
     // Vote accounts information
