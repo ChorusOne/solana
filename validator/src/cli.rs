@@ -1768,6 +1768,15 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                    The validator's own vote account is always included implicitly \
                    if there is one.")
         )
+        .arg(
+            Arg::with_name("monitor_identity_accounts_info_path")
+                .long("monitor-identity-accounts-info-path")
+                .takes_value(true)
+                .value_name("PATH")
+                .help("Path to a config file containing additional information about identity accounts. \
+                   This is used to enrich Prometheus metrics with validator name labels. \
+                   If not specified this data will be gathered from accounts DB, however this process is very costly and time consuming.")
+        )
         // End Chorus changes
     ;
 }

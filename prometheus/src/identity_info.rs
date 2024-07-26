@@ -3,6 +3,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_vote_program::vote_state::VoteState;
 
 use bincode;
+use log::info;
 use serde::Deserialize;
 use serde_json;
 use solana_accounts_db::accounts_index::ScanConfig;
@@ -10,9 +11,11 @@ use solana_runtime::bank_forks::BankForks;
 use solana_sdk::account::ReadableAccount;
 use solana_sdk::transaction_context::TransactionAccount;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::RwLock;
 use std::{collections::HashSet, sync::Arc};
-use log::info;
+
+use crate::PrometheusMetricsConfig;
 
 /// ValidatorInfo represents selected fields from the config account data.
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
@@ -21,6 +24,25 @@ pub struct ValidatorInfo {
 }
 
 pub type IdentityInfoMap = HashMap<Pubkey, ValidatorInfo>;
+
+impl TryFrom<PrometheusMetricsConfig> for IdentityInfoMap {
+    type Error = solana_sdk::pubkey::ParsePubkeyError;
+
+    fn try_from(value: PrometheusMetricsConfig) -> std::result::Result<Self, Self::Error> {
+        value
+            .monitor_identity_accounts
+            .into_iter()
+            .map(|acc| {
+                let pubkey = Pubkey::from_str(&acc.identity_pubkey)?;
+                Ok((
+                    pubkey,
+                    ValidatorInfo {
+                        name: acc.validator_name,
+                    },
+                ))
+            }).collect()
+    }
+}
 
 pub fn map_vote_identity_to_info(
     bank_forks: &Arc<RwLock<BankForks>>,
