@@ -374,6 +374,7 @@ impl JsonRpcService {
         max_complete_rewards_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
         vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+        monitor_identity_accounts_info_path: Option<PathBuf>,
     ) -> Result<Self, String> {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -527,6 +528,7 @@ impl JsonRpcService {
                         block_commitment_cache.clone(),
                         cluster_info_clone_for_metrics,
                         vote_accounts_to_monitor.clone(),
+                        monitor_identity_accounts_info_path,
                         snapshot_config.clone(),
                     ))
                 } else {
@@ -681,6 +683,7 @@ mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
             Arc::new(HashSet::default()),
+            None,
         )
         .expect("assume successful JsonRpcService start");
         let thread = rpc_service.thread_hdl.thread();
