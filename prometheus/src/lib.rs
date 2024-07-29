@@ -6,7 +6,9 @@ mod snapshot_metrics;
 mod utils;
 
 use banks_with_commitments::BanksWithCommitments;
-use identity_info::{map_vote_identity_to_info, IdentityInfoMap};
+use identity_info::{IdentityInfoMap};
+use log::info;
+use serde::Deserialize;
 use solana_gossip::cluster_info::ClusterInfo;
 use solana_runtime::{
     bank_forks::BankForks, commitment::BlockCommitmentCache, snapshot_config::SnapshotConfig,
@@ -14,13 +16,25 @@ use solana_runtime::{
 use solana_sdk::pubkey::Pubkey;
 use std::{
     collections::HashSet,
+    fs::File,
+    path::PathBuf,
     sync::{Arc, RwLock},
-    thread,
 };
-use log::info;
 
 #[derive(Clone, Copy)]
 pub struct Lamports(pub u64);
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct PrometheusMetricsConfig {
+    pub monitor_identity_accounts: Vec<MonitorIdentityAccount>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MonitorIdentityAccount {
+    /// Base58 encoded identity pubkey
+    pub identity_pubkey: String,
+    pub validator_name: String,
+}
 
 pub struct PrometheusMetrics {
     bank_forks: Arc<RwLock<BankForks>>,
@@ -28,12 +42,9 @@ pub struct PrometheusMetrics {
     cluster_info: Arc<ClusterInfo>,
     vote_accounts: Arc<HashSet<Pubkey>>,
     snapshot_config: Option<SnapshotConfig>,
-    /// Initialized based on vote_accounts. Maps identity
-    /// pubkey associated with the vote account to the validator info.
-    /// Since loading accounts takes a lot of time, we initialize it in a
-    /// separate thread, hence the RwLock - to set the data later from a
-    /// different thread.
-    identity_info_map: RwLock<Option<IdentityInfoMap>>,
+    /// Initialized based on identity_accounts_file.
+    /// Maps identity pubkey to the validator info.
+    identity_info_map: Option<IdentityInfoMap>,
 }
 
 impl PrometheusMetrics {
@@ -42,32 +53,34 @@ impl PrometheusMetrics {
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         cluster_info: Arc<ClusterInfo>,
         vote_accounts: Arc<HashSet<Pubkey>>,
+        identity_accounts_file: Option<PathBuf>,
         snapshot_config: Option<SnapshotConfig>,
     ) -> Arc<Self> {
+        // We read and parse config file here instead of doing it earlier, so
+        // that we do not need to import types from this library in the main.
+        let identity_map = identity_accounts_file.map(|identity_accounts_file| {
+            info!("Identity accounts file provided, reading accounts to monitor from it...");
+
+            // We use yaml to be consistent with the rest of the config files.
+            let file =
+                File::open(identity_accounts_file).expect("Unable to open identity accounts file");
+            // At this point, it is easier for us to crash the application here
+            // than propagating the error.
+            let config = serde_yaml::from_reader::<_, PrometheusMetricsConfig>(file).expect(
+                "Unable to deserialize prometheus metrics config from identity accounts file",
+            );
+            config.try_into().expect("Unable to parse config to identity accounts map")
+        });
+
         let prom_metrics = Self {
             bank_forks: bank_forks.clone(),
             block_commitment_cache,
             cluster_info,
             vote_accounts: vote_accounts.clone(),
-            identity_info_map: RwLock::new(None),
+            identity_info_map: identity_map,
             snapshot_config,
         };
-        let prom_metrics = Arc::new(prom_metrics);
-
-        let prom_metrics_clone = prom_metrics.clone();
-        thread::spawn(move || {
-            info!("Initializing identity info map...");
-            // TODO: This can panic, we should handle it better
-            let identity_info_map = map_vote_identity_to_info(&bank_forks, &vote_accounts);
-            info!("Identity info map initialized. Enabling accounts metrics...");
-            prom_metrics_clone
-                .identity_info_map
-                .write()
-                .unwrap()
-                .replace(identity_info_map);
-        });
-
-        prom_metrics
+        Arc::new(prom_metrics)
     }
 
     pub fn render_prometheus(&self) -> Vec<u8> {
@@ -86,16 +99,14 @@ impl PrometheusMetrics {
         cluster_metrics::write_node_metrics(&banks_with_comm, &self.cluster_info, &mut out)
             .expect("IO error");
 
-        let identity_map = &self.identity_info_map.read().unwrap().clone();
-        if let Some(identity_info_map) = identity_map {
-            cluster_metrics::write_accounts_metrics(
-                &banks_with_comm,
-                &self.vote_accounts,
-                identity_info_map,
-                &mut out,
-            )
-            .expect("IO error");
-        }
+        cluster_metrics::write_accounts_metrics(
+            &banks_with_comm,
+            &self.vote_accounts,
+            &self.identity_info_map,
+            &mut out,
+        )
+        .expect("IO error");
+
         if let Some(snapshot_config) = self.snapshot_config.as_ref() {
             snapshot_metrics::write_snapshot_metrics(snapshot_config, &mut out).expect("IO error");
         }
