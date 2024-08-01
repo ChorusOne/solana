@@ -6,7 +6,7 @@ mod snapshot_metrics;
 mod utils;
 
 use banks_with_commitments::BanksWithCommitments;
-use identity_info::{IdentityInfoMap};
+use identity_info::IdentityInfoMap;
 use log::info;
 use serde::Deserialize;
 use solana_gossip::cluster_info::ClusterInfo;
@@ -69,7 +69,9 @@ impl PrometheusMetrics {
             let config = serde_yaml::from_reader::<_, PrometheusMetricsConfig>(file).expect(
                 "Unable to deserialize prometheus metrics config from identity accounts file",
             );
-            config.try_into().expect("Unable to parse config to identity accounts map")
+            config
+                .try_into()
+                .expect("Unable to parse config to identity accounts map")
         });
 
         let prom_metrics = Self {
