@@ -7,6 +7,7 @@ mod utils;
 
 use banks_with_commitments::BanksWithCommitments;
 use identity_info::{map_vote_identity_to_info, IdentityInfoMap};
+use log::info;
 use solana_gossip::cluster_info::ClusterInfo;
 use solana_runtime::{
     bank_forks::BankForks, commitment::BlockCommitmentCache, snapshot_config::SnapshotConfig,
@@ -17,7 +18,6 @@ use std::{
     sync::{Arc, RwLock},
     thread,
 };
-use log::info;
 
 #[derive(Clone, Copy)]
 pub struct Lamports(pub u64);
@@ -27,6 +27,7 @@ pub struct PrometheusMetrics {
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
     cluster_info: Arc<ClusterInfo>,
     vote_accounts: Arc<HashSet<Pubkey>>,
+    accounts_to_monitor_balance: Arc<HashSet<Pubkey>>,
     snapshot_config: Option<SnapshotConfig>,
     /// Initialized based on vote_accounts. Maps identity
     /// pubkey associated with the vote account to the validator info.
@@ -42,6 +43,7 @@ impl PrometheusMetrics {
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         cluster_info: Arc<ClusterInfo>,
         vote_accounts: Arc<HashSet<Pubkey>>,
+        accounts_to_monitor_balance: Arc<HashSet<Pubkey>>,
         snapshot_config: Option<SnapshotConfig>,
     ) -> Arc<Self> {
         let prom_metrics = Self {
@@ -49,6 +51,7 @@ impl PrometheusMetrics {
             block_commitment_cache,
             cluster_info,
             vote_accounts: vote_accounts.clone(),
+            accounts_to_monitor_balance: accounts_to_monitor_balance.clone(),
             identity_info_map: RwLock::new(None),
             snapshot_config,
         };
@@ -91,6 +94,7 @@ impl PrometheusMetrics {
             cluster_metrics::write_accounts_metrics(
                 &banks_with_comm,
                 &self.vote_accounts,
+                &self.accounts_to_monitor_balance,
                 identity_info_map,
                 &mut out,
             )

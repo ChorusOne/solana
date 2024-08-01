@@ -101,6 +101,7 @@ pub fn write_node_metrics<W: io::Write>(
 pub fn write_accounts_metrics<W: io::Write>(
     banks_with_commitments: &BanksWithCommitments,
     vote_accounts: &Arc<HashSet<Pubkey>>,
+    accounts_to_monitor_balance: &Arc<HashSet<Pubkey>>,
     identity_info: &IdentityInfoMap,
     out: &mut W,
 ) -> io::Result<()> {
@@ -186,6 +187,23 @@ pub fn write_accounts_metrics<W: io::Write>(
                                 "validator_name",
                                 vote_info.validator_info.map(|v| v.name),
                             ),
+                    )
+                }),
+            },
+        )?;
+    }
+
+    for account_to_monitor_balance in accounts_to_monitor_balance.iter() {
+        write_metric(
+            out,
+            &MetricFamily {
+                name: "solana_account_balance_sol",
+                help: "The balance of the account at the given address",
+                type_: "gauge",
+                metrics: banks_with_commitments.for_each_commitment(|bank| {
+                    Some(
+                        Metric::new_sol(Lamports(bank.get_balance(account_to_monitor_balance)))
+                            .with_label("account", account_to_monitor_balance.to_string()),
                     )
                 }),
             },

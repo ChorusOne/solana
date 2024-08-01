@@ -3,6 +3,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_vote_program::vote_state::VoteState;
 
 use bincode;
+use log::info;
 use serde::Deserialize;
 use serde_json;
 use solana_accounts_db::accounts_index::ScanConfig;
@@ -12,7 +13,6 @@ use solana_sdk::transaction_context::TransactionAccount;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::{collections::HashSet, sync::Arc};
-use log::info;
 
 /// ValidatorInfo represents selected fields from the config account data.
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]

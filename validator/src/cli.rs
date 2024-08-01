@@ -1768,6 +1768,15 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                    The validator's own vote account is always included implicitly \
                    if there is one.")
         )
+        .arg(
+            Arg::with_name("monitor_account_balance")
+                .long("monitor-account-balance")
+                .takes_value(true)
+                .value_name("PUBKEY")
+                .validator(is_pubkey)
+                .multiple(true)
+                .help("Arbitrary accounts to expose Prometheus metrics about their balances.")
+        )
         // End Chorus changes
     ;
 }
