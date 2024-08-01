@@ -25,11 +25,6 @@ fn get_vote_state(
     vote_pubkey: &Pubkey,
     identity_info: &Option<IdentityInfoMap>,
 ) -> Option<ValidatorVoteInfo> {
-    if identity_info.is_none() {
-        return None;
-    }
-    let identity_info = identity_info.as_ref().unwrap();
-
     let default_vote_state = VoteState::default();
     let vote_accounts = bank.vote_accounts();
     let (activated_stake, vote_account) = vote_accounts.get(vote_pubkey)?;
@@ -38,7 +33,10 @@ fn get_vote_state(
 
     let identity = vote_state.node_pubkey;
 
-    let validator_info = identity_info.get(&identity);
+    let validator_info = identity_info
+        .as_ref()
+        .map(|id_info| id_info.get(&identity).clone())
+        .flatten();
 
     let last_vote = vote_state.votes.back()?.slot();
     let balance = Lamports(bank.get_balance(&vote_pubkey));

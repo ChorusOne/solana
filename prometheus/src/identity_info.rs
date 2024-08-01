@@ -1,5 +1,5 @@
-use solana_sdk::pubkey::Pubkey;
 use serde::Deserialize;
+use solana_sdk::pubkey::Pubkey;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -28,6 +28,7 @@ impl TryFrom<PrometheusMetricsConfig> for IdentityInfoMap {
                         name: acc.validator_name,
                     },
                 ))
-            }).collect()
+            })
+            .collect()
     }
 }
