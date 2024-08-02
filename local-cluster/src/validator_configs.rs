@@ -30,6 +30,7 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         repair_whitelist: config.repair_whitelist.clone(),
         gossip_validators: config.gossip_validators.clone(),
         vote_accounts_to_monitor: config.vote_accounts_to_monitor.clone(),
+        accounts_to_monitor_balance: config.accounts_to_monitor_balance.clone(),
         monitor_identity_accounts_info_path: config.monitor_identity_accounts_info_path.clone(),
         accounts_hash_interval_slots: config.accounts_hash_interval_slots,
         max_genesis_archive_unpacked_size: config.max_genesis_archive_unpacked_size,

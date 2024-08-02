@@ -230,6 +230,7 @@ pub struct ValidatorConfig {
     pub repair_whitelist: Arc<RwLock<HashSet<Pubkey>>>, // Empty = repair with all
     pub gossip_validators: Option<HashSet<Pubkey>>, // None = gossip with all
     pub vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
+    pub accounts_to_monitor_balance: Arc<HashSet<Pubkey>>,
     pub monitor_identity_accounts_info_path: Option<PathBuf>,
     pub accounts_hash_interval_slots: u64,
     pub max_genesis_archive_unpacked_size: u64,
@@ -305,6 +306,7 @@ impl Default for ValidatorConfig {
             repair_whitelist: Arc::new(RwLock::new(HashSet::default())),
             gossip_validators: None,
             vote_accounts_to_monitor: Arc::new(HashSet::new()),
+            accounts_to_monitor_balance: Arc::new(HashSet::new()),
             monitor_identity_accounts_info_path: None,
             accounts_hash_interval_slots: std::u64::MAX,
             max_genesis_archive_unpacked_size: MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
@@ -1032,6 +1034,7 @@ impl Validator {
                 max_complete_rewards_slot,
                 prioritization_fee_cache.clone(),
                 config.vote_accounts_to_monitor.clone(),
+                config.accounts_to_monitor_balance.clone(),
                 config.monitor_identity_accounts_info_path.clone(),
             )?;
 
