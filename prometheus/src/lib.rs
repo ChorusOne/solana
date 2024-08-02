@@ -41,6 +41,7 @@ pub struct PrometheusMetrics {
     block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
     cluster_info: Arc<ClusterInfo>,
     vote_accounts: Arc<HashSet<Pubkey>>,
+    accounts_to_monitor_balance: Arc<HashSet<Pubkey>>,
     snapshot_config: Option<SnapshotConfig>,
     /// Initialized based on identity_accounts_file.
     /// Maps identity pubkey to the validator info.
@@ -53,6 +54,7 @@ impl PrometheusMetrics {
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         cluster_info: Arc<ClusterInfo>,
         vote_accounts: Arc<HashSet<Pubkey>>,
+        accounts_to_monitor_balance: Arc<HashSet<Pubkey>>,
         identity_accounts_file: Option<PathBuf>,
         snapshot_config: Option<SnapshotConfig>,
     ) -> Arc<Self> {
@@ -79,6 +81,7 @@ impl PrometheusMetrics {
             block_commitment_cache,
             cluster_info,
             vote_accounts: vote_accounts.clone(),
+            accounts_to_monitor_balance: accounts_to_monitor_balance.clone(),
             identity_info_map: identity_map,
             snapshot_config,
         };
@@ -104,6 +107,7 @@ impl PrometheusMetrics {
         cluster_metrics::write_accounts_metrics(
             &banks_with_comm,
             &self.vote_accounts,
+            &self.accounts_to_monitor_balance,
             &self.identity_info_map,
             &mut out,
         )
