@@ -1769,6 +1769,15 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                    if there is one.")
         )
         .arg(
+            Arg::with_name("monitor_account_balance")
+                .long("monitor-account-balance")
+                .takes_value(true)
+                .value_name("PUBKEY")
+                .validator(is_pubkey)
+                .multiple(true)
+                .help("Arbitrary accounts to expose Prometheus metrics about their balances.")
+        )
+        .arg(
             Arg::with_name("monitor_identity_accounts_info_path")
                 .long("monitor-identity-accounts-info-path")
                 .takes_value(true)
