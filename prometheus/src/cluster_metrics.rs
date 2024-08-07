@@ -3,11 +3,10 @@ use solana_runtime::bank::Bank;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 use solana_vote_program::vote_state::VoteState;
 
-use crate::identity_info::{IdentityInfoMap, ValidatorInfo};
 use crate::{
     banks_with_commitments::BanksWithCommitments,
     utils::{write_metric, Metric, MetricFamily},
-    Lamports,
+    Lamports, ValidatorInfo, ValidatorInfoMap,
 };
 use std::{collections::HashSet, io, sync::Arc};
 
@@ -23,7 +22,7 @@ struct ValidatorVoteInfo {
 fn get_vote_state(
     bank: &Bank,
     vote_pubkey: &Pubkey,
-    identity_info: &Option<IdentityInfoMap>,
+    validator_info_map: &ValidatorInfoMap,
 ) -> Option<ValidatorVoteInfo> {
     let default_vote_state = VoteState::default();
     let vote_accounts = bank.vote_accounts();
@@ -33,13 +32,10 @@ fn get_vote_state(
 
     let identity = vote_state.node_pubkey;
 
-    let validator_info = identity_info
-        .as_ref()
-        .map(|id_info| id_info.get(&identity).clone())
-        .flatten();
+    let validator_info = validator_info_map.get(vote_pubkey).cloned();
 
     let last_vote = vote_state.votes.back()?.slot();
-    let balance = Lamports(bank.get_balance(&vote_pubkey));
+    let balance = Lamports(bank.get_balance(vote_pubkey));
     let vote_credits = vote_state.credits();
     Some(ValidatorVoteInfo {
         balance,
@@ -47,7 +43,7 @@ fn get_vote_state(
         vote_credits,
         identity,
         activated_stake: Lamports(*activated_stake),
-        validator_info: validator_info.cloned(),
+        validator_info,
     })
 }
 
@@ -105,7 +101,7 @@ pub fn write_accounts_metrics<W: io::Write>(
     banks_with_commitments: &BanksWithCommitments,
     vote_accounts: &Arc<HashSet<Pubkey>>,
     accounts_to_monitor_balance: &Arc<HashSet<Pubkey>>,
-    identity_info: &Option<IdentityInfoMap>,
+    validator_info_map: &ValidatorInfoMap,
     out: &mut W,
 ) -> io::Result<()> {
     // Vote accounts information
@@ -118,7 +114,7 @@ pub fn write_accounts_metrics<W: io::Write>(
                     "The voted-on slot of the validator's last vote that got included in the chain",
                 type_: "gauge",
                 metrics: banks_with_commitments.for_each_commitment(|bank| {
-                    let vote_info = get_vote_state(bank, vote_account, identity_info)?;
+                    let vote_info = get_vote_state(bank, vote_account, validator_info_map)?;
                     Some(
                         Metric::new(vote_info.last_vote)
                             .with_label("identity_account", vote_info.identity.to_string())
@@ -139,7 +135,7 @@ pub fn write_accounts_metrics<W: io::Write>(
                 help: "The balance of the vote account at the given address",
                 type_: "gauge",
                 metrics: banks_with_commitments.for_each_commitment(|bank| {
-                    let vote_info = get_vote_state(bank, vote_account, identity_info)?;
+                    let vote_info = get_vote_state(bank, vote_account, validator_info_map)?;
                     Some(
                         Metric::new_sol(vote_info.balance)
                             .with_label("identity_account", vote_info.identity.to_string())
@@ -160,7 +156,7 @@ pub fn write_accounts_metrics<W: io::Write>(
                 help: "The total number of vote credits credited to this vote account",
                 type_: "gauge",
                 metrics: banks_with_commitments.for_each_commitment(|bank| {
-                    let vote_info = get_vote_state(bank, vote_account, identity_info)?;
+                    let vote_info = get_vote_state(bank, vote_account, validator_info_map)?;
                     Some(
                         Metric::new(vote_info.vote_credits)
                             .with_label("identity_account", vote_info.identity.to_string())
@@ -181,7 +177,7 @@ pub fn write_accounts_metrics<W: io::Write>(
                 help: "The total amount of Sol actively staked to this validator",
                 type_: "gauge",
                 metrics: banks_with_commitments.for_each_commitment(|bank| {
-                    let vote_info = get_vote_state(bank, vote_account, identity_info)?;
+                    let vote_info = get_vote_state(bank, vote_account, validator_info_map)?;
                     Some(
                         Metric::new_sol(vote_info.activated_stake)
                             .with_label("identity_account", vote_info.identity.to_string())

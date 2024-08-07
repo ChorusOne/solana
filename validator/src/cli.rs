@@ -1955,33 +1955,34 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 .help("Expose prometheus on RPC endpoint /metrics")
         )
         .arg(
-            Arg::with_name("monitor_vote_account")
-                .long("monitor-vote-account")
-                .takes_value(true)
-                .value_name("PUBKEY")
-                .validator(is_pubkey)
-                .multiple(true)
-                .help("Additional vote accounts expose Prometheus metrics about. \
-                   The validator's own vote account is always included implicitly \
-                   if there is one.")
-        )
-        .arg(
-            Arg::with_name("monitor_account_balance")
-                .long("monitor-account-balance")
-                .takes_value(true)
-                .value_name("PUBKEY")
-                .validator(is_pubkey)
-                .multiple(true)
-                .help("Arbitrary accounts to expose Prometheus metrics about their balances.")
-        )
-        .arg(
-            Arg::with_name("monitor_identity_accounts_info_path")
-                .long("monitor-identity-accounts-info-path")
+            Arg::with_name("monitor_accounts_config_path")
+                .long("monitor-accounts-config-path")
                 .takes_value(true)
                 .value_name("PATH")
-                .help("Path to a config file containing additional information about identity accounts. \
-                   This is used to enrich Prometheus metrics with validator name labels. \
-                   If not specified this data will be gathered from accounts DB, however this process is very costly and time consuming.")
+                .help(
+                    "Path to a config file containing information about the accounts to monitor\n\
+                    and expose Prometheus metrics about.\n\
+                    \n\
+                    Format of the config file:\n\
+                    \n\
+                    ```yaml\n\
+                    monitor_vote_accounts:\n  \
+                      - pubkey: <PUBKEY>\n    \
+                        name: <VALIDATOR_NAME> (optional)\n  \
+                      ...\n\
+                    monitor_accounts_balance:\n  \
+                      - pubkey: <PUBKEY>\n  \
+                      ...\n\
+                    ```\n\
+                    \n\
+                    - The `monitor_vote_accounts` field specifies a list of vote accounts to\n  \
+                      monitor. The validator's own vote account is always included implicitly\n  \
+                      if there is one. For each vote account, the optional `name` field\n  \
+                      specifies the validator name corresponding to the account. This is used\n  \
+                      to enrich the Prometheus metrics with validator name labels.\n\
+                    - The `monitor_accounts_balance` field specifies a list of accounts to\n  \
+                      monitor for their balance.\n\
+                ")
         )
         // End Chorus changes
     ;
