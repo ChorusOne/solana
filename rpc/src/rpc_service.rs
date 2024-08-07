@@ -40,7 +40,6 @@ use {
     solana_send_transaction_service::send_transaction_service::{self, SendTransactionService},
     solana_storage_bigtable::CredentialType,
     std::{
-        collections::HashSet,
         net::SocketAddr,
         path::{Path, PathBuf},
         sync::{
@@ -373,9 +372,8 @@ impl JsonRpcService {
         max_complete_transaction_status_slot: Arc<AtomicU64>,
         max_complete_rewards_slot: Arc<AtomicU64>,
         prioritization_fee_cache: Arc<PrioritizationFeeCache>,
-        vote_accounts_to_monitor: Arc<HashSet<Pubkey>>,
-        accounts_to_monitor_balance: Arc<HashSet<Pubkey>>,
-        monitor_identity_accounts_info_path: Option<PathBuf>,
+        monitor_accounts_config_path: Option<PathBuf>,
+        default_vote_account_to_monitor: Option<Pubkey>,
     ) -> Result<Self, String> {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -528,9 +526,8 @@ impl JsonRpcService {
                         bank_forks.clone(),
                         block_commitment_cache.clone(),
                         cluster_info_clone_for_metrics,
-                        vote_accounts_to_monitor.clone(),
-                        accounts_to_monitor_balance.clone(),
-                        monitor_identity_accounts_info_path,
+                        monitor_accounts_config_path,
+                        default_vote_account_to_monitor,
                         snapshot_config.clone(),
                     ))
                 } else {
@@ -684,8 +681,7 @@ mod tests {
             Arc::new(AtomicU64::default()),
             Arc::new(AtomicU64::default()),
             Arc::new(PrioritizationFeeCache::default()),
-            Arc::new(HashSet::default()),
-            Arc::new(HashSet::default()),
+            None,
             None,
         )
         .expect("assume successful JsonRpcService start");

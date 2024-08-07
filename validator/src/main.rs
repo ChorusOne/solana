@@ -412,33 +412,6 @@ fn hardforks_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Slot>> {
     }
 }
 
-fn get_vote_accounts_to_monitor(matches: &ArgMatches<'_>) -> HashSet<Pubkey> {
-    let vote_account = if matches.is_present("vote_account") {
-        vec![pubkey_of(&matches, "vote_account")
-            .expect("Does not fail, as this is validated by Clap earlier.")]
-    } else {
-        vec![]
-    };
-    let mut monitor_vote_accounts = if matches.is_present("monitor_vote_account") {
-        let accounts = values_t_or_exit!(matches, "monitor_vote_account", Pubkey);
-        accounts.into_iter().collect::<HashSet<Pubkey>>()
-    } else {
-        HashSet::new()
-    };
-    monitor_vote_accounts.extend(vote_account.iter());
-    monitor_vote_accounts
-}
-
-fn get_accounts_to_monitor_balance(matches: &ArgMatches<'_>) -> HashSet<Pubkey> {
-    if matches.is_present("monitor_account_balance") {
-        values_t_or_exit!(matches, "monitor_account_balance", Pubkey)
-            .into_iter()
-            .collect()
-    } else {
-        HashSet::new()
-    }
-}
-
 fn validators_set(
     identity_pubkey: &Pubkey,
     matches: &ArgMatches<'_>,
@@ -1758,13 +1731,18 @@ pub fn main() {
         Keypair::new().pubkey()
     });
 
-    validator_config.vote_accounts_to_monitor = Arc::new(get_vote_accounts_to_monitor(&matches));
-    validator_config.monitor_identity_accounts_info_path = matches
-        .value_of("monitor_identity_accounts_info_path")
-        .map(|path| PathBuf::from(path));
+    validator_config.monitor_accounts_config_path = matches
+        .value_of("monitor_accounts_config_path")
+        .map(PathBuf::from);
 
-    validator_config.accounts_to_monitor_balance =
-        Arc::new(get_accounts_to_monitor_balance(&matches));
+    validator_config.default_vote_account_to_monitor = if matches.is_present("vote_account") {
+        Some(
+            pubkey_of(&matches, "vote_account")
+                .expect("Does not fail, as this is validated by Clap earlier."),
+        )
+    } else {
+        None
+    };
 
     let dynamic_port_range =
         solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
