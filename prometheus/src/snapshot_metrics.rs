@@ -10,6 +10,7 @@ pub fn write_snapshot_metrics<W: io::Write>(
 ) -> io::Result<()> {
    let full_snapshot_info = match snapshot_utils::get_highest_full_snapshot_archive_info(
         &snapshot_config.full_snapshot_archives_dir,
+        None,
     ) {
         Some(info) => info,
         None => return Ok(()),
@@ -30,6 +31,7 @@ pub fn write_snapshot_metrics<W: io::Write>(
         match snapshot_utils::get_highest_incremental_snapshot_archive_info(
             &snapshot_config.incremental_snapshot_archives_dir,
             full_snapshot_info.slot(),
+            None,
         ) {
             None => return Ok(()),
             Some(info) => info,
